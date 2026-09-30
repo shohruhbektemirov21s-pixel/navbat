@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;800;900&amp;display=swap');
+      .title { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; font-weight: 900; font-size: 68px; fill: #ffffff; letter-spacing: -1px; }
+      .tagline { font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif; font-weight: 500; font-size: 20px; fill: #ffffff; letter-spacing: 0.2px; }
+    </style>
+  </defs>
+  <!-- Official Blue Background -->
+  <rect width="512" height="512" fill="#0066FF" rx="40" />
+
+  <!-- Center Emblem -->
+  <g transform="translate(256, 185) scale(1.15)">
+    <!-- Outer Circular Ring -->
+    <circle cx="0" cy="0" r="76" fill="none" stroke="#ffffff" stroke-width="9.5" />
+
+    <!-- Building Rooftop Towers / Vents -->
+    <path d="M3 -52 L3 -32 L14 -32 L14 -46 Z" fill="#ffffff" />
+    <path d="M17 -60 L17 -32 L28 -32 L28 -53 Z" fill="#ffffff" />
+
+    <!-- Left Building Facade -->
+    <path d="M-46 -40 L-3 -51 L-3 22 L-46 10 Z" fill="#ffffff" />
+
+    <!-- Windows (2 cols x 4 rows) -->
+    <rect x="-40" y="-32" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-40" y="-21" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-40" y="-10" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-40" y="1"   width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+
+    <rect x="-26" y="-35" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-26" y="-24" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-26" y="-13" width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+    <rect x="-26" y="-2"  width="6.5" height="7.5" rx="1" fill="#0066FF" transform="skewY(14)" />
+
+    <!-- Right Building Facade & Connecting Roof Angle -->
+    <path d="M-3 -51 L32 -40 L32 -6 L54 -8 L54 -20 L-3 -51 Z" fill="#ffffff" />
+    <polygon points="13,-16 54,-8 13,15" fill="#ffffff" />
+
+    <!-- Dynamic Leaf / Swoosh -->
+    <path d="M-40 14 C-25 42, 15 52, 55 6 C38 36, -8 42, -40 14 Z" fill="#ffffff" />
+    <path d="M-32 10 C-18 35, 18 42, 52 8 C35 28, -2 32, -32 10 Z" fill="#ffffff" />
+  </g>
+
+  <!-- Wordmark -->
+  <text x="256" y="375" text-anchor="middle" class="title">NavbatBor</text>
+
+  <!-- Tagline -->
+  <text x="256" y="415" text-anchor="middle" class="tagline">Navbat kutmang. Vaqtingizni qadrlang.</text>
+</svg>

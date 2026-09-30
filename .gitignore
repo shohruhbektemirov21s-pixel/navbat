@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+backend/venv/
+*/venv/
+venv/
+
+# Build artifacts
+dist/
+build/
+coverage/
+staticfiles/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+
+# Databases & local stores
+*.sqlite
+*.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.bak
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Logs & OS
+*.log
+.DS_Store
+Thumbs.db
