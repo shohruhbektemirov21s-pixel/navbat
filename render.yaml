@@ -1,0 +1,59 @@
+services:
+  # --- Backend: Django REST API ---
+  - name: navbatbor-backend
+    type: web
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn navbat_backend.wsgi:application"
+    healthCheckPath: /api/public-stats
+    envVars:
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: ALLOWED_HOSTS
+        value: navbatbor-backend.onrender.com
+      - key: CORS_ALLOWED_ORIGINS
+        value: https://navbatbor-frontend.onrender.com
+      - key: CSRF_TRUSTED_ORIGINS
+        value: https://navbatbor-frontend.onrender.com
+      - key: FRONTEND_URL
+        value: https://navbatbor-frontend.onrender.com
+      - key: BACKEND_URL
+        value: https://navbatbor-backend.onrender.com
+      - key: DATABASE_URL
+        fromDatabase:
+          name: navbatbor-db
+          property: connectionString
+      - key: THROTTLE_AUTH
+        value: "10/min"
+      - key: ALLOW_DEV_QUICK_LOGIN
+        value: "0"
+      # Secrets below are intentionally left out of git (sync: false).
+      # Render will prompt you to type them in once, in the dashboard, after the Blueprint is created.
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_BOT_USERNAME
+        value: NavbatBor_bot
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+
+  # --- Frontend: Vite/React static build, proxies /api to the backend service ---
+  - name: navbatbor-frontend
+    type: web
+    runtime: static
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: ./dist
+    routes:
+      - type: rewrite
+        source: /api/(.*)
+        destination: https://navbatbor-backend.onrender.com/api/$1
+      - type: rewrite
+        source: /(.*)
+        destination: /index.html
+
+databases:
+  - name: navbatbor-db
+    plan: free
