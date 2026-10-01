@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { X, Calendar, Clock, User, Check, AlertCircle, Sparkles, CheckCircle2, Send, Share2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Calendar, AlertCircle, CheckCircle2, Send, Share2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { api } from '../api';
 import { Service, StaffMember, User as UserType } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { toIdList } from '../utils/safe';
 import {
   getTashkentNow,
   isSlotBookable,
@@ -20,7 +22,6 @@ interface BookingModalProps {
   initialServiceId?: string;
   onClose: () => void;
   onSuccess: (booking: any) => void;
-  onOpenAuth: () => void;
   onGoToBookings?: () => void;
 }
 
@@ -32,7 +33,6 @@ export const BookingModal: React.FC<BookingModalProps> = ({
   initialServiceId,
   onClose,
   onSuccess,
-  onOpenAuth,
   onGoToBookings,
 }) => {
   const { t, lang } = useTranslation();
@@ -87,10 +87,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({
     }
   };
 
-  // Filter staff matching selected service
+  useEscapeKey(onClose, !submitting);
+
+  // Filter staff matching selected service (service_ids may be an array, a comma string or null)
   const filteredStaff = staff.filter((s) => {
-    if (!s.service_ids) return true;
-    return s.service_ids.split(',').includes(selectedServiceId);
+    const ids = toIdList(s.service_ids);
+    if (ids.length === 0) return true;
+    return ids.includes(selectedServiceId);
   });
 
   // Ensure selected staff is valid for the service
@@ -235,7 +238,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto animate-in fade-in">
-      <div className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl my-8 border border-slate-200">
+      <div role="dialog" aria-modal="true" aria-label={t('book_time')} className="bg-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl my-8 border border-slate-200">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
@@ -244,6 +247,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
           </div>
           <button
             id="close-booking-modal-btn"
+            aria-label="Yopish"
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
           >
@@ -580,7 +584,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
                   : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20 active:scale-[0.99]'
               }`}
             >
-              {submitting ? t('loading') : (t('confirm_booking_btn') || 'Bronni Tasdiqlash')}
+              {submitting ? t('loading') : t('confirm_booking_btn')}
             </button>
 
             {/* Mobile safe-area spacing below confirm button */}

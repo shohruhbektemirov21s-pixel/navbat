@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, ShieldCheck, FileText, HelpCircle } from 'lucide-react';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface LegalModalProps {
   type: 'privacy' | 'terms' | 'support';
@@ -7,10 +8,11 @@ interface LegalModalProps {
 }
 
 export const LegalModal: React.FC<LegalModalProps> = ({ type, onClose }) => {
+  useEscapeKey(onClose);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 max-h-[85vh] overflow-y-auto">
-        <button
+      <div role="dialog" aria-modal="true" className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 max-h-[85vh] overflow-y-auto">
+        <button aria-label="Yopish"
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition"
         >

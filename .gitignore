@@ -10,6 +10,9 @@ build/
 coverage/
 staticfiles/
 
+# User-uploaded media (Telegram business-application photos, etc.)
+backend/media/
+
 # Python
 __pycache__/
 *.py[cod]

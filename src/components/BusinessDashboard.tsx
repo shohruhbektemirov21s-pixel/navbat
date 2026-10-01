@@ -1,25 +1,39 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   BarChart3, Calendar as CalendarIcon, Users, Clock, 
   Layers, UserCheck, ShieldCheck, QrCode, DollarSign, 
   CheckCircle, XCircle, AlertCircle, Plus, Search, RefreshCw, Trash2,
   Send, Bell, CreditCard, ShieldAlert, CheckCircle2, Smartphone,
   Tv, CalendarCheck, Megaphone, Eye, MousePointerClick,
-  ArrowRight, History, CheckCheck, UserMinus, Sparkles, MessageCircle, ExternalLink, X,
+  ArrowRight, History, CheckCheck, UserMinus, Sparkles, X,
   Lock, Copy
 } from 'lucide-react';
 import { api } from '../api';
-import { User, CRMCustomer, Service, StaffMember } from '../types';
+import { CRMCustomer, Service, StaffMember } from '../types';
 import { QRCodeModal } from './QRCodeModal';
 import { QueueBoardModal } from './QueueBoardModal';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useToast, useTimedState } from '../hooks/useTimedState';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useConfirm } from './ui/Dialog';
+import { asArray } from '../utils/safe';
+import { makePhoneChangeHandler, phoneKeyDownGuard } from '../utils/phoneInput';
+
+/** Base cadence of the single dashboard ticker. */
+const TICK_MS = 1000;
+/** Queue state (`/api/queue/current`) is polled every N ticks. */
+const QUEUE_POLL_TICKS = 5;
+/** A pending Telegram confirmation is polled every N ticks. */
+const PENDING_POLL_TICKS = 2;
+
+const pendingIdOf = (action: any): string | undefined => action?.id || action?.pendingActionId || undefined;
+const labelsFor = (names: string[]) => names.join(', ');
 
 interface BusinessDashboardProps {
-  currentUser: User;
   onOpenOnboarding?: () => void;
 }
 
-export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUser, onOpenOnboarding }) => {
+export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ onOpenOnboarding }) => {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'overview' | 'calendar' | 'queue' | 'crm' | 'services' | 'staff' | 'hours' | 'blocked' | 'marketing' | 'subscription' | 'qr'>('overview');
   const [business, setBusiness] = useState<any | null>(null);
@@ -42,8 +56,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   const [telegramGroup, setTelegramGroup] = useState<string>('');
   const [savingTelegram, setSavingTelegram] = useState<boolean>(false);
   const [telegramSuccess, setTelegramSuccess] = useState<string>('');
-  const [renewing, setRenewing] = useState<boolean>(false);
-  const [renewSuccess, setRenewSuccess] = useState<string>('');
 
   // Telegram Payment Modal State
   const [paymentModalOpen, setPaymentModalOpen] = useState<boolean>(false);
@@ -51,7 +63,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   const [telegramPaymentLoading, setTelegramPaymentLoading] = useState<boolean>(false);
   const [preparedTelegramMessage, setPreparedTelegramMessage] = useState<string>('');
   const [paymentStep, setPaymentStep] = useState<'preview' | 'sent'>('preview');
-  const [copiedMessage, setCopiedMessage] = useState<boolean>(false);
+  const [copiedMessage, showCopiedMessage, clearCopiedMessage] = useTimedState<boolean>(2500);
 
   // Tab specific data
   const [calendarBookings, setCalendarBookings] = useState<any[]>([]);
@@ -71,25 +83,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<StaffMember[]>([]);
 
-  // Blocked Times State
-  const [blockedTimes, setBlockedTimes] = useState<any[]>([]);
-  const [showAddBlocked, setShowAddBlocked] = useState<boolean>(false);
-  const [blockedStaffId, setBlockedStaffId] = useState<string>('');
-  const [blockedTitle, setBlockedTitle] = useState<string>('');
-  const [blockedStartDate, setBlockedStartDate] = useState<string>('');
-  const [blockedStartTime, setBlockedStartTime] = useState<string>('09:00');
-  const [blockedEndDate, setBlockedEndDate] = useState<string>('');
-  const [blockedEndTime, setBlockedEndTime] = useState<string>('19:00');
-
-  // Cancel & Reschedule Booking Modals in Business Cabinet
-  const [cancelBookingTarget, setCancelBookingTarget] = useState<any | null>(null);
-  const [cancelReasonText, setCancelReasonText] = useState<string>('');
-  const [rescheduleBookingTarget, setRescheduleBookingTarget] = useState<any | null>(null);
-  const [bizRescheduleDate, setBizRescheduleDate] = useState<string>('');
-  const [bizRescheduleTime, setBizRescheduleTime] = useState<string>('');
-  const [bizRescheduleStaffId, setBizRescheduleStaffId] = useState<string>('');
-  const [bizActionLoading, setBizActionLoading] = useState<boolean>(false);
-
   // Modals & Forms
   const [showAddService, setShowAddService] = useState<boolean>(false);
   const [newServiceName, setNewServiceName] = useState<string>('');
@@ -105,54 +98,80 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   const [showQRModal, setShowQRModal] = useState<boolean>(false);
   const [sendingReminderId, setSendingReminderId] = useState<string | null>(null);
 
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  const { toast, showToast } = useToast();
+  const confirm = useConfirm();
+
+  // Escape closes the top-most dashboard modal.
+  useEscapeKey(() => setShowAuditLogs(false), showAuditLogs);
+  useEscapeKey(() => setShowAddService(false), showAddService);
+  useEscapeKey(() => setShowAddStaff(false), showAddStaff);
+  useEscapeKey(() => setPaymentModalOpen(false), paymentModalOpen && !!selectedPaymentPlan);
+
+  /** Applies a `/api/queue/current` payload; returns true when the visible queue changed. */
+  const lastQueueSignatureRef = useRef<string>('');
+  const applyQueueState = useCallback((qState: any): boolean => {
+    if (!qState || typeof qState !== 'object') return false;
+    setCurrentQueueCustomer(qState.currentCustomer ?? null);
+    setNextQueueCustomer(qState.nextCustomer ?? null);
+    setWaitingQueueCount(Number(qState.waitingCount) || 0);
+    const incoming = qState.pendingAction ?? null;
+    // Keep object identity when the same pending action is reported again.
+    setPendingAction((prev: any) => (pendingIdOf(prev) && pendingIdOf(prev) === pendingIdOf(incoming) ? prev : incoming));
+
+    const signature = [
+      qState.currentCustomer?.id ?? '',
+      qState.currentCustomer?.status ?? '',
+      qState.nextCustomer?.id ?? '',
+      qState.waitingCount ?? 0,
+      qState.servedToday ?? '',
+    ].join('|');
+    const changed = signature !== lastQueueSignatureRef.current;
+    lastQueueSignatureRef.current = signature;
+    return changed;
+  }, []);
 
   const loadCurrentBusiness = async () => {
     setLoading(true);
     try {
       const res = await api.getCurrentBusiness();
-      setBusiness(res.business);
-      setStats(res.stats);
+      setBusiness(res?.business ?? null);
+      setStats(res?.stats ?? null);
 
-      if (res.business) {
+      if (res?.business) {
+        const bizId = res.business.id;
         setTelegramChatId(res.business.telegram_chat_id || '');
         setTelegramGroup(res.business.telegram_channel_or_group || '');
 
-        // Load initial tab data & subscription
-        const [calRes, qRes, crmRes, srvRes, stfRes, subRes, whRes, adRes, qState, qLogs] = await Promise.all([
-          api.getCalendarBookings(),
-          api.getBusinessQueue(res.business.id),
-          api.getCRMCustomers(),
-          api.getBusinessServices(),
-          api.getBusinessStaff(),
-          api.getBusinessSubscription().catch(() => null),
-          api.getBusinessWorkingHours().catch(() => []),
-          api.getBusinessAdAnalytics().catch(() => null),
-          api.getCurrentQueueState(res.business.id).catch(() => null),
-          api.getQueueAuditLogs(res.business.id).catch(() => [])
-        ]);
-        setCalendarBookings(calRes);
-        setQueueEntries(qRes);
-        setCrmCustomers(crmRes);
-        setServices(srvRes);
-        setStaff(stfRes);
-        if (subRes) setSubData(subRes);
-        if (whRes) setWorkingHours(whRes);
-        if (adRes) setAdAnalytics(adRes);
-        if (qState) {
-          setCurrentQueueCustomer(qState.currentCustomer);
-          setNextQueueCustomer(qState.nextCustomer);
-          setWaitingQueueCount(qState.waitingCount);
-          if (qState.pendingAction) setPendingAction(qState.pendingAction);
+        // Load every section independently: one failing endpoint must not blank the dashboard.
+        const sections = [
+          { label: 'Bronlar', run: () => api.getCalendarBookings(), apply: (v: any) => setCalendarBookings(asArray(v)) },
+          { label: 'Navbat', run: () => api.getBusinessQueue(bizId), apply: (v: any) => setQueueEntries(asArray(v)) },
+          { label: 'Mijozlar (CRM)', run: () => api.getCRMCustomers(), apply: (v: any) => setCrmCustomers(asArray(v)) },
+          { label: 'Xizmatlar', run: () => api.getBusinessServices(), apply: (v: any) => setServices(asArray(v)) },
+          { label: 'Xodimlar', run: () => api.getBusinessStaff(), apply: (v: any) => setStaff(asArray(v)) },
+          { label: 'Tarif', run: () => api.getBusinessSubscription(), apply: (v: any) => v && setSubData(v) },
+          { label: 'Ish vaqti', run: () => api.getBusinessWorkingHours(), apply: (v: any) => setWorkingHours(asArray(v)) },
+          { label: 'Reklama', run: () => api.getBusinessAdAnalytics(), apply: (v: any) => v && setAdAnalytics(v) },
+          { label: 'Navbat holati', run: () => api.getCurrentQueueState(bizId), apply: (v: any) => applyQueueState(v) },
+          { label: 'Navbat tarixi', run: () => api.getQueueAuditLogs(bizId), apply: (v: any) => setAuditLogs(asArray(v)) },
+        ];
+        const results = await Promise.allSettled(sections.map((section) => section.run()));
+        const failed: string[] = [];
+        results.forEach((result, i) => {
+          if (result.status === 'fulfilled') {
+            sections[i].apply(result.value);
+          } else {
+            failed.push(sections[i].label);
+            console.error(`Biznes paneli: "${sections[i].label}" yuklanmadi`, result.reason);
+          }
+        });
+        if (failed.length > 0) {
+          showToast(`Ba’zi bo‘limlar yuklanmadi: ${labelsFor(failed)}`, 'error');
         }
-        if (qLogs) setAuditLogs(qLogs);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading business:', err);
+      showToast(err?.message || 'Biznes ma’lumotlarini yuklashda xatolik', 'error');
     } finally {
       setLoading(false);
     }
@@ -169,7 +188,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
     const msg = `Salom! NavbatBor tarifini sotib olmoqchiman.\nBiznes: ${business?.name || 'Mening biznesim'}\nTarif: ${plan.name || plan.code}\nNarx: ${formattedPrice}`;
     setPreparedTelegramMessage(msg);
     setPaymentStep('preview');
-    setCopiedMessage(false);
+    clearCopiedMessage();
     setPaymentModalOpen(true);
   };
 
@@ -236,7 +255,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
     try {
       await api.updateBookingStatus(bookingId, newStatus);
       const updated = await api.getCalendarBookings();
-      setCalendarBookings(updated);
+      setCalendarBookings(asArray(updated));
       const cur = await api.getCurrentBusiness();
       setStats(cur.stats);
       showToast('Buyurtma holati yangilandi', 'success');
@@ -257,96 +276,128 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
     }
   };
 
-  const refreshQueueData = async () => {
-    if (!business?.id) return;
-    try {
-      const [entries, qState, logs] = await Promise.all([
-        api.getBusinessQueue(business.id).catch(() => []),
-        api.getCurrentQueueState(business.id).catch(() => null),
-        api.getQueueAuditLogs(business.id).catch(() => [])
-      ]);
-      setQueueEntries(entries);
-      if (qState) {
-        setCurrentQueueCustomer(qState.currentCustomer);
-        setNextQueueCustomer(qState.nextCustomer);
-        setWaitingQueueCount(qState.waitingCount);
-        if (qState.pendingAction) setPendingAction(qState.pendingAction);
+  const businessId: string | undefined = business?.id;
+
+  /** Full queue refresh: entries list + current state + audit log (each tolerated independently). */
+  const refreshQueueData = useCallback(async () => {
+    if (!businessId) return;
+    const [entries, qState, logs] = await Promise.allSettled([
+      api.getBusinessQueue(businessId),
+      api.getCurrentQueueState(businessId),
+      api.getQueueAuditLogs(businessId),
+    ]);
+    if (entries.status === 'fulfilled') setQueueEntries(asArray(entries.value));
+    if (qState.status === 'fulfilled') applyQueueState(qState.value);
+    if (logs.status === 'fulfilled') setAuditLogs(asArray(logs.value));
+  }, [businessId, applyQueueState]);
+
+  // ---------------------------------------------------------------------------
+  // Realtime queue sync (Django has no SSE): ONE ticker drives
+  //   * the pending-confirmation countdown (every tick),
+  //   * pending Telegram confirmation status (every PENDING_POLL_TICKS),
+  //   * `/api/queue/current` polling (every QUEUE_POLL_TICKS; full refresh only on change).
+  // The ticker pauses while the tab is hidden and resyncs immediately when visible again.
+  // ---------------------------------------------------------------------------
+  const pendingActionId = pendingIdOf(pendingAction);
+  const pendingActionIdRef = useRef<string | undefined>(pendingActionId);
+  pendingActionIdRef.current = pendingActionId;
+  const refreshQueueDataRef = useRef(refreshQueueData);
+  refreshQueueDataRef.current = refreshQueueData;
+  const showToastRef = useRef(showToast);
+  showToastRef.current = showToast;
+
+  // Reset the visible countdown whenever a new pending action appears.
+  useEffect(() => {
+    if (pendingActionId) setPendingCountdown(60);
+  }, [pendingActionId]);
+
+  useEffect(() => {
+    if (!businessId) return;
+
+    let tick = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let disposed = false;
+    let queueBusy = false;
+    let pendingBusy = false;
+
+    const pollQueueState = async () => {
+      if (queueBusy) return;
+      queueBusy = true;
+      try {
+        const qState = await api.getCurrentQueueState(businessId);
+        if (!disposed && applyQueueState(qState)) {
+          await refreshQueueDataRef.current();
+        }
+      } catch {
+        // transient polling error — next tick retries
+      } finally {
+        queueBusy = false;
       }
-      if (logs) setAuditLogs(logs);
-    } catch (err) {}
-  };
-
-  // Real-Time SSE listener for instantaneous queue sync
-  useEffect(() => {
-    if (!business?.id) return;
-
-    let es: EventSource | null = null;
-    try {
-      es = new EventSource(`/api/queue/stream/${business.id}`);
-      es.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === 'QUEUE_CALLED') {
-            setCurrentQueueCustomer(data.called);
-            setPendingAction(null);
-            showToast(`Navbat #${data.called.queue_number} (${data.called.customer_name}) chaqirildi!`, 'success');
-            refreshQueueData();
-          } else if (data.type === 'PENDING_ACTION_CREATED') {
-            setPendingAction(data);
-            setPendingCountdown(60);
-          } else if (data.type === 'PENDING_ACTION_CANCELLED') {
-            setPendingAction(null);
-          } else if (data.type === 'SERVICE_COMPLETED' || data.type === 'CUSTOMER_NO_SHOW' || data.type === 'QUEUE_STATUS_UPDATED') {
-            refreshQueueData();
-          } else if (data.type === 'CONNECTED') {
-            setCurrentQueueCustomer(data.currentCustomer);
-            setNextQueueCustomer(data.nextCustomer);
-            setWaitingQueueCount(data.waitingCount);
-            if (data.pendingAction) setPendingAction(data.pendingAction);
-          }
-        } catch (e) {}
-      };
-    } catch (err) {}
-
-    return () => {
-      if (es) es.close();
     };
-  }, [business?.id]);
 
-  // Polling fallback when pending Telegram confirmation is active
-  useEffect(() => {
-    if (!pendingAction) return;
-    const actionId = pendingAction.id || pendingAction.pendingActionId;
-    if (!actionId) return;
-
-    const countdownInterval = setInterval(() => {
-      setPendingCountdown(prev => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-
-    const pollInterval = setInterval(async () => {
+    const pollPendingStatus = async (actionId: string) => {
+      if (pendingBusy) return;
+      pendingBusy = true;
       try {
         const res = await api.getPendingQueueStatus(actionId);
-        if (res.status === 'CONFIRMED') {
+        if (disposed || pendingActionIdRef.current !== actionId) return;
+        if (res?.status === 'CONFIRMED') {
           setPendingAction(null);
-          showToast('Telegram orqali tasdiqlandi! Keyingi mijoz chaqirildi.', 'success');
-          refreshQueueData();
-        } else if (res.status === 'CANCELLED') {
+          showToastRef.current('Telegram orqali tasdiqlandi! Keyingi mijoz chaqirildi.', 'success');
+          refreshQueueDataRef.current();
+        } else if (res?.status === 'CANCELLED') {
           setPendingAction(null);
-          showToast('Keyingi mijozni chaqirish bekor qilindi', 'error');
-          refreshQueueData();
-        } else if (res.status === 'EXPIRED') {
+          showToastRef.current('Keyingi mijozni chaqirish bekor qilindi', 'error');
+          refreshQueueDataRef.current();
+        } else if (res?.status === 'EXPIRED') {
           setPendingAction(null);
-          showToast('Tasdiqlash muddati tugadi', 'error');
-          refreshQueueData();
+          showToastRef.current('Tasdiqlash muddati tugadi', 'error');
+          refreshQueueDataRef.current();
         }
-      } catch (e) {}
-    }, 2000);
+      } catch {
+        // transient polling error — next tick retries
+      } finally {
+        pendingBusy = false;
+      }
+    };
+
+    const onTick = () => {
+      tick += 1;
+      const actionId = pendingActionIdRef.current;
+      if (actionId) {
+        setPendingCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+        if (tick % PENDING_POLL_TICKS === 0) pollPendingStatus(actionId);
+      }
+      if (tick % QUEUE_POLL_TICKS === 0) pollQueueState();
+    };
+
+    const start = () => {
+      if (timer === null) timer = setInterval(onTick, TICK_MS);
+    };
+    const stop = () => {
+      if (timer !== null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        stop();
+      } else {
+        refreshQueueDataRef.current();
+        start();
+      }
+    };
+
+    if (document.visibilityState !== 'hidden') start();
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
     return () => {
-      clearInterval(countdownInterval);
-      clearInterval(pollInterval);
+      disposed = true;
+      stop();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [pendingAction]);
+  }, [businessId, applyQueueState]);
 
   const handleCallNextCustomer = async () => {
     if (!business) return;
@@ -379,20 +430,6 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
       await refreshQueueData();
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
-    }
-  };
-
-  const handleRequestNextCustomer = async () => {
-    if (!business) return;
-    setRequestingNext(true);
-    try {
-      const res = await api.operatorCallNext(business.id);
-      showToast(res.message || 'Keyingi mijoz chaqirildi!', 'success');
-      await refreshQueueData();
-    } catch (err: any) {
-      showToast(err.message || 'Keyingi mijozni chaqirishda xatolik', 'error');
-    } finally {
-      setRequestingNext(false);
     }
   };
 
@@ -473,7 +510,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
       setShowAddService(false);
       setNewServiceName('');
       const updated = await api.getBusinessServices();
-      setServices(updated);
+      setServices(asArray(updated));
       showToast('Yangi xizmat qo‘shildi', 'success');
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
@@ -481,17 +518,17 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   };
 
   const handleDeleteService = async (id: string) => {
-    try {
-      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        if (!window.confirm('Ushbu xizmatni o‘chirmoqchimisiz?')) return;
-      }
-    } catch {
-      // Proceed if confirm is blocked by iframe policy
-    }
+    const ok = await confirm({
+      title: 'Xizmatni o‘chirish',
+      message: 'Ushbu xizmatni o‘chirmoqchimisiz? Bu amalni ortga qaytarib bo‘lmaydi.',
+      confirmText: 'O‘chirish',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.deleteBusinessService(id);
       const updated = await api.getBusinessServices();
-      setServices(updated);
+      setServices(asArray(updated));
       showToast('Xizmat o‘chirildi', 'success');
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
@@ -510,7 +547,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
       setNewStaffName('');
       setNewStaffTitle('');
       const updated = await api.getBusinessStaff();
-      setStaff(updated);
+      setStaff(asArray(updated));
       showToast('Yangi xodim qo‘shildi', 'success');
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
@@ -520,10 +557,11 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
   const handleSearchCRM = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const results = await api.getCRMCustomers(crmSearch);
-      setCrmCustomers(results);
-    } catch (err) {
+      const results = await api.getCRMCustomers(crmSearch.trim());
+      setCrmCustomers(asArray(results));
+    } catch (err: any) {
       console.error(err);
+      showToast(err?.message || 'Mijozlarni qidirishda xatolik', 'error');
     }
   };
 
@@ -550,9 +588,10 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
                 type="button"
                 id="biz-dash-onboard-btn"
                 onClick={onOpenOnboarding}
-                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer inline-flex items-center gap-1.5"
               >
-                Biznesni ro‘yxatdan o‘tkazish
+                <Send className="w-3.5 h-3.5" />
+                <span>Telegram botga o‘tish</span>
               </button>
             )}
             <button
@@ -674,7 +713,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
             {business.logo_url ? (
               <img src={business.logo_url} alt={business.name} className="w-full h-full object-cover" />
             ) : (
-              business.name[0]
+              (business.name || '?')[0]
             )}
           </div>
           <div>
@@ -1397,13 +1436,14 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
           {/* 3. AUDIT LOGS MODAL */}
           {showAuditLogs && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-              <div className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
+              <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[85vh] flex flex-col">
                 <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                   <div className="flex items-center gap-2">
                     <History className="w-5 h-5 text-indigo-600" />
                     <h3 className="text-base font-bold text-slate-900">Navbat Audit Tarixi (Single Source of Truth)</h3>
                   </div>
                   <button
+                    aria-label="Yopish"
                     onClick={() => setShowAuditLogs(false)}
                     className="p-1.5 hover:bg-slate-100 text-slate-500 rounded-lg transition"
                   >
@@ -1591,7 +1631,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
           {/* Add Service Modal */}
           {showAddService && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div role="dialog" aria-modal="true" className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <h3 className="text-base font-bold text-slate-900 mb-4">Yangi Xizmat Qo‘shish</h3>
                 <form onSubmit={handleCreateService} className="space-y-4 text-xs">
                   <div>
@@ -1688,7 +1728,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
                     />
                   ) : null}
                   <div className="w-full h-full flex items-center justify-center font-bold text-slate-600">
-                    {st.name[0]}
+                    {(st.name || '?')[0]}
                   </div>
                 </div>
                 <div>
@@ -1702,7 +1742,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
 
           {showAddStaff && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-              <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+              <div role="dialog" aria-modal="true" className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
                 <h3 className="text-base font-bold text-slate-900 mb-4">Yangi Xodim Qo‘shish</h3>
                 <form onSubmit={handleCreateStaff} className="space-y-4 text-xs">
                   <div>
@@ -1730,7 +1770,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
                     <input
                       type="tel"
                       value={newStaffPhone}
-                      onChange={(e) => setNewStaffPhone(e.target.value)}
+                      onChange={makePhoneChangeHandler(setNewStaffPhone)}
+                      onKeyDown={phoneKeyDownGuard}
                       className="w-full border border-slate-300 rounded-xl p-2.5"
                     />
                   </div>
@@ -1769,21 +1810,12 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
             </div>
             <button
               onClick={() => handleRenewSubscription(business.subscription_plan_code || 'PRO')}
-              disabled={renewing}
               className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-xs shrink-0"
             >
-              <RefreshCw className={`w-4 h-4 ${renewing ? 'animate-spin' : ''}`} />
-              <span>{renewing ? 'Uzaytirilmoqda...' : 'Tarifni 1 Oyga Uzaytirish (+30 kun)'}</span>
+              <RefreshCw className="w-4 h-4" />
+              <span>Tarifni 1 Oyga Uzaytirish (+30 kun)</span>
             </button>
           </div>
-
-          {/* Success messages */}
-          {renewSuccess && (
-            <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <span>{renewSuccess}</span>
-            </div>
-          )}
 
           {/* Current Subscription Card */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1986,7 +2018,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
                         )}
                       </div>
                       <div className="text-2xl font-black text-slate-900 mb-1">
-                        {p.price === 0 ? 'Bepul' : `${p.price.toLocaleString('uz-UZ')} UZS`}
+                        {p.price === 0 ? 'Bepul' : `${Number(p.price ?? 0).toLocaleString('uz-UZ')} UZS`}
                       </div>
                       <p className="text-xs text-slate-500 mb-4">{p.desc}</p>
 
@@ -2356,8 +2388,8 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
       {/* Telegram Payment Modal */}
       {paymentModalOpen && selectedPaymentPlan && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-6 sm:p-8 shadow-2xl relative animate-in fade-in zoom-in-95">
-            <button
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl border border-slate-200 max-w-lg w-full p-6 sm:p-8 shadow-2xl relative animate-in fade-in zoom-in-95">
+            <button aria-label="Yopish"
               onClick={() => setPaymentModalOpen(false)}
               className="absolute top-5 right-5 w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center font-bold text-xs transition cursor-pointer"
             >
@@ -2402,8 +2434,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ currentUse
                       onClick={() => {
                         if (typeof navigator !== 'undefined' && navigator.clipboard) {
                           navigator.clipboard.writeText(preparedTelegramMessage);
-                          setCopiedMessage(true);
-                          setTimeout(() => setCopiedMessage(false), 2500);
+                          showCopiedMessage(true);
                         }
                       }}
                       className="text-[11px] text-[#0088cc] hover:underline font-bold flex items-center gap-1 cursor-pointer"

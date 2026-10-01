@@ -3,6 +3,7 @@ import { X, Star, AlertCircle } from 'lucide-react';
 import { api } from '../api';
 import { Booking } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ReviewModalProps {
   booking: Booking;
@@ -11,6 +12,7 @@ interface ReviewModalProps {
 }
 
 export const ReviewModal: React.FC<ReviewModalProps> = ({ booking, onClose, onSuccess }) => {
+  useEscapeKey(onClose);
   const { t, lang } = useTranslation();
   const [rating, setRating] = useState<number>(5);
   const [hoverRating, setHoverRating] = useState<number>(0);
@@ -67,8 +69,8 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({ booking, onClose, onSu
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 p-6">
-        <button
+      <div role="dialog" aria-modal="true" className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 p-6">
+        <button aria-label="Yopish"
           id="close-review-modal-btn"
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"

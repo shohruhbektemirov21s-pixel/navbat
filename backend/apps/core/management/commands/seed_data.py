@@ -1,6 +1,8 @@
 import json
 from datetime import timedelta
-from django.core.management.base import BaseCommand
+
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from apps.authentication.models import User, UserRole, UserStatus
@@ -12,9 +14,15 @@ from apps.partners.models import CRMLead, PartnerCommission, PartnerReport
 
 
 class Command(BaseCommand):
-    help = 'Seeds initial authentic data for NavbatBor Qarshi pilot'
+    help = 'Seeds demo data for the NavbatBor Qarshi pilot (development only; idempotent).'
+
+    def add_arguments(self, parser):
+        parser.add_argument('--force', action='store_true',
+                            help='Run even when DEBUG is off (creates accounts with well-known demo passwords!).')
 
     def handle(self, *args, **options):
+        if not settings.DEBUG and not options['force']:
+            raise CommandError('seed_data faqat DEBUG rejimida ishlaydi. Majburan ishga tushirish: --force')
         self.stdout.write("Populating categories...")
         categories_data = [
             {'id': 'cat-stomatology', 'name': 'Stomatologiya', 'slug': 'stomatologiya', 'icon': 'Smile', 'description': 'Tish davolash, implantatsiya va gigiyena'},
@@ -203,6 +211,7 @@ class Command(BaseCommand):
             id='stf-jasur-aliyev',
             defaults={
                 'business': b1,
+                'user': created_users['staff@navbatbor.uz'],
                 'name': 'Dr. Jasur Aliyev',
                 'title': 'Bosh shifokor, Terapevt-stomatolog',
                 'phone': '+998944445566',
@@ -212,10 +221,17 @@ class Command(BaseCommand):
         )
         stf1.services.set([s1, s2, s3])
 
-        # Business hours (Mon-Sat 09:00 - 18:00)
+        partner = created_users['partner@navbatbor.uz']
+        for biz in [b1, b2, b3]:
+            if not biz.subscription_expires_at:
+                biz.subscription_expires_at = timezone.now() + timedelta(days=30)
+            biz.partner = partner
+            biz.save(update_fields=['subscription_expires_at', 'partner'])
+
+        # Business hours (Mon-Sat 09:00 - 18:00). day_of_week uses the JS convention: 0 = Sunday.
         for biz in [b1, b2, b3]:
             for dow in range(7):
-                is_sun = (dow == 6)
+                is_sun = (dow == 0)
                 BusinessHours.objects.update_or_create(
                     business=biz,
                     day_of_week=dow,
@@ -240,7 +256,8 @@ class Command(BaseCommand):
             }
         )
 
-        # Live Queue Entries
+        # Live Queue Entries (today's board)
+        today_local = timezone.localdate()
         QueueEntry.objects.update_or_create(
             id='que-a025',
             defaults={
@@ -251,6 +268,7 @@ class Command(BaseCommand):
                 'customer_name': 'Vali Karimov',
                 'customer_phone': '+998911112233',
                 'queue_number': 'A025',
+                'queue_date': today_local,
                 'status': QueueStatus.SERVING,
                 'estimated_wait_minutes': 0,
                 'served_at': timezone.now()
@@ -266,6 +284,7 @@ class Command(BaseCommand):
                 'customer_name': 'Jasur Rahimov',
                 'customer_phone': '+998933334455',
                 'queue_number': 'A026',
+                'queue_date': today_local,
                 'status': QueueStatus.CALLED,
                 'estimated_wait_minutes': 5,
                 'called_at': timezone.now()
@@ -281,13 +300,14 @@ class Command(BaseCommand):
                 'customer_name': 'Otabek Rustamov',
                 'customer_phone': '+998971112244',
                 'queue_number': 'A027',
+                'queue_date': today_local,
                 'status': QueueStatus.WAITING,
                 'estimated_wait_minutes': 25
             }
         )
 
         # Bookings
-        today = timezone.now().date()
+        today = timezone.localdate()
         Booking.objects.update_or_create(
             booking_number='NB-100201',
             defaults={
@@ -316,7 +336,7 @@ class Command(BaseCommand):
                 'phone': '+998912223344',
                 'city': 'Qarshi',
                 'category': 'Tibbiyot',
-                'status': 'MEETING',
+                'status': 'DEMO',
                 'notes': 'Rahbariyat bilan uchrashuv belgilangan. 8 ta shifokorni tizimga kiritish rejalashtirilmoqda.',
                 'assigned_to': partner_user
             }
@@ -329,23 +349,34 @@ class Command(BaseCommand):
                 'phone': '+998905556677',
                 'city': 'Qarshi',
                 'category': 'Avtoservis',
-                'status': 'WON',
+                'status': 'ACTIVE',
                 'notes': 'Shartnoma imzolandi, to‘lov kutilmoqda.',
                 'assigned_to': partner_user
             }
         )
 
-        # Partner Commission
+        # Partner Commission (30% of a 4,000,000 so'm payment)
         PartnerCommission.objects.update_or_create(
             id='com-qarshi-1',
             defaults={
                 'partner': partner_user,
                 'business': b1,
+                'plan_code': 'PRO',
+                'total_amount_uzs': 4000000,
+                'partner_rate': 0.30,
                 'amount_uzs': 1200000,
-                'period_month': '2026-09',
+                'navbatbor_share_uzs': 2800000,
+                'period_month': today.strftime('%Y-%m'),
                 'status': 'PENDING',
                 'payout_notes': 'Qarshi pilot ulush komissiyasi'
             }
         )
 
-        self.stdout.write(self.style.SUCCESS("Successfully seeded authentic Qarshi pilot data into Django!"))
+        # Keep the daily ticket counter in sync with the seeded ticket numbers.
+        from apps.queues.models import QueueDailyCounter
+        QueueDailyCounter.objects.update_or_create(business=b1, date=today_local, defaults={'last_number': 27})
+
+        self.stdout.write(self.style.SUCCESS(
+            f"Demo ma'lumotlar yuklandi: {len(created_users)} ta foydalanuvchi, 3 ta biznes. "
+            "Kirish ma'lumotlari: README.md (faqat lokal ishlab chiqish uchun)."
+        ))

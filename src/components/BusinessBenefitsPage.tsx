@@ -1,9 +1,8 @@
 import React from 'react';
-import { 
-  ArrowLeft, Building2, QrCode, Tv, Users, TrendingUp, 
-  CheckCircle2, Sparkles, Send, ShieldCheck, ArrowRight 
+import {
+  ArrowLeft, Building2, QrCode, Tv, Users, TrendingUp,
+  Send, ShieldCheck, ArrowRight
 } from 'lucide-react';
-import { useTranslation } from '../i18n/LanguageContext';
 
 interface BusinessBenefitsPageProps {
   onBack: () => void;
@@ -14,8 +13,6 @@ export const BusinessBenefitsPage: React.FC<BusinessBenefitsPageProps> = ({
   onBack,
   onOpenOnboarding,
 }) => {
-  const { t } = useTranslation();
-
   const businessFeatures = [
     {
       icon: QrCode,
@@ -89,7 +86,8 @@ export const BusinessBenefitsPage: React.FC<BusinessBenefitsPageProps> = ({
               onClick={onOpenOnboarding}
               className="px-6 py-3.5 bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-lg shadow-blue-500/30 transition cursor-pointer active:scale-95 flex items-center gap-2"
             >
-              <span>Biznesingizni bepul qo‘shing</span>
+              <Send className="w-4 h-4" />
+              <span>Telegram orqali ulash</span>
               <ArrowRight className="w-4 h-4" />
             </button>
             <a
@@ -166,9 +164,10 @@ export const BusinessBenefitsPage: React.FC<BusinessBenefitsPageProps> = ({
           </div>
           <button
             onClick={onOpenOnboarding}
-            className="px-6 py-3.5 bg-white hover:bg-slate-100 text-blue-900 font-bold text-xs sm:text-sm rounded-xl shadow-md transition cursor-pointer shrink-0 active:scale-95"
+            className="px-6 py-3.5 bg-white hover:bg-slate-100 text-blue-900 font-bold text-xs sm:text-sm rounded-xl shadow-md transition cursor-pointer shrink-0 active:scale-95 flex items-center gap-2"
           >
-            Biznesni ulash (Bepul)
+            <Send className="w-4 h-4" />
+            <span>Telegram orqali ulash (Bepul)</span>
           </button>
         </div>
       </div>

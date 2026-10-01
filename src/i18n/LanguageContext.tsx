@@ -40,6 +40,16 @@ const cityTranslations: Record<string, Record<Language, string>> = {
 
 const LanguageContext = createContext<LanguageContextType | null>(null);
 
+/** Dev-only: report each missing translation key once per language. */
+const reportedMissingKeys = new Set<string>();
+function warnMissingKey(key: string, lang: Language) {
+  if (!import.meta.env.DEV) return;
+  const id = `${lang}:${key}`;
+  if (reportedMissingKeys.has(id)) return;
+  reportedMissingKeys.add(id);
+  console.warn(`[i18n] "${key}" kaliti "${lang}" tilida topilmadi`);
+}
+
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [lang, setLangState] = useState<Language>(() => {
     // 1. Try localStorage
@@ -90,7 +100,13 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const t = (key: TranslationKey, params?: Record<string, string | number>): string => {
     const langDict = translations[lang] || translations.uz;
-    let text = langDict[key] || translations.uz[key] || (key as string);
+    let text: string = langDict[key] || translations.uz[key];
+    if (!text) {
+      warnMissingKey(key as string, lang);
+      text = key as string;
+    } else if (import.meta.env.DEV && !langDict[key]) {
+      warnMissingKey(key as string, lang);
+    }
 
     if (params) {
       for (const [k, v] of Object.entries(params)) {

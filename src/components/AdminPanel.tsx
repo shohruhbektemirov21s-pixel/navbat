@@ -1,20 +1,234 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Shield, Building2, Users, FileText, CheckCircle, CheckCircle2, AlertCircle, XCircle, AlertTriangle, 
-  RefreshCw, Calendar, Send, CreditCard, Clock, Activity, Search, Filter, 
-  Phone, MessageSquare, Database, ArrowUpRight, Bell, Check, TrendingUp,
-  Star, Trash2, Eye, X, Megaphone, PauseCircle, PlayCircle, Key, UserPlus, Lock,
-  Unlock, Download, BarChart3, PieChart, ShieldAlert, Award
+import {
+  Shield, Building2, Users, FileText, CheckCircle, CheckCircle2, AlertCircle, AlertTriangle,
+  RefreshCw, Calendar, Send, CreditCard, Clock, Activity, Search, Filter,
+  MessageSquare, Database, ArrowUpRight, Check, TrendingUp,
+  Star, Trash2, Eye, X, Megaphone, Key, UserPlus, Lock,
+  Download, BarChart3, ShieldAlert, Award, MapPin, Phone
 } from 'lucide-react';
 import { api } from '../api';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useToast } from '../hooks/useTimedState';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useConfirm, usePrompt } from './ui/Dialog';
+import { asArray, asNumber, asObject } from '../utils/safe';
+
+/** Uzbek weekday names for `day_of_week` 0 (Sunday) .. 6 (Saturday), as returned by the business-applications API. */
+const WEEKDAY_NAMES_UZ = ['Yakshanba', 'Dushanba', 'Seshanba', 'Chorshanba', 'Payshanba', 'Juma', 'Shanba'];
+
+/**
+ * Normalises `/api/admin/reports` so every nested section the UI reads exists.
+ * Missing numbers default to 0 and missing lists to [].
+ */
+function normalizeReports(raw: any) {
+  if (!raw || typeof raw !== 'object') return null;
+  const financial = asObject(raw.financial);
+  const businesses = asObject(raw.businesses);
+  const users = asObject(raw.users);
+  const num = (obj: Record<string, any>, key: string) => asNumber(obj[key]);
+  return {
+    ...raw,
+    financial: {
+      ...financial,
+      totalGrossRevenue: num(financial, 'totalGrossRevenue'),
+      monthlyGrossRevenue: num(financial, 'monthlyGrossRevenue'),
+      todayGrossRevenue: num(financial, 'todayGrossRevenue'),
+      avgBookingValue: num(financial, 'avgBookingValue'),
+      totalBookingsCount: num(financial, 'totalBookingsCount'),
+      completedCount: num(financial, 'completedCount'),
+      confirmedCount: num(financial, 'confirmedCount'),
+      pendingBookingsCount: num(financial, 'pendingBookingsCount'),
+      cancelledCount: num(financial, 'cancelledCount'),
+    },
+    businesses: {
+      ...businesses,
+      total: num(businesses, 'total'),
+      approved: num(businesses, 'approved'),
+      pending: num(businesses, 'pending'),
+      suspended: num(businesses, 'suspended'),
+      rejected: num(businesses, 'rejected'),
+      verified: num(businesses, 'verified'),
+      topPerformers: asArray(businesses.topPerformers),
+    },
+    users: {
+      ...users,
+      total: num(users, 'total'),
+      active: num(users, 'active'),
+      blocked: num(users, 'blocked'),
+      roles: asArray(users.roles),
+    },
+    topServices: asArray(raw.topServices),
+    queueStats: asObject(raw.queueStats),
+  };
+}
+
+/** Normalises `/api/admin/system-health` (tableCounts may be missing on older backends). */
+function normalizeSystemHealth(raw: any) {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    ...raw,
+    uptimeSeconds: asNumber(raw.uptimeSeconds),
+    memoryUsageMB: raw.memoryUsageMB ?? '—',
+    tableCounts: asObject(raw.tableCounts),
+  };
+}
+
+function normalizeSubscriptions(raw: any): { subscriptions: any[]; transactions: any[]; pendingTransactions?: any[] } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    ...raw,
+    subscriptions: asArray(raw.subscriptions),
+    transactions: asArray(raw.transactions),
+    ...(raw.pendingTransactions !== undefined ? { pendingTransactions: asArray(raw.pendingTransactions) } : {}),
+  };
+}
+
+interface BusinessApplicationCardProps {
+  app: any;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
+  actionLoading: boolean;
+  onApprove: () => void;
+  onReject: () => void;
+}
+
+/** One pending Telegram-bot-submitted business application, with its photos & weekly schedule. */
+const BusinessApplicationCard: React.FC<BusinessApplicationCardProps> = ({
+  app,
+  isExpanded,
+  onToggleExpand,
+  actionLoading,
+  onApprove,
+  onReject,
+}) => {
+  const photos = asArray(app.photos);
+  const hours = asArray(app.hours)
+    .slice()
+    .sort((a: any, b: any) => (a.day_of_week ?? 0) - (b.day_of_week ?? 0));
+  const submittedAt = app.created_at
+    ? new Date(app.created_at).toLocaleString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : '';
+  const telegramHandle = (app.telegram_username || '').replace(/^@/, '');
+
+  return (
+    <div className="border border-slate-200 rounded-2xl overflow-hidden">
+      <div className="p-4 sm:p-5">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="text-sm font-black text-slate-900">{app.name || 'Nomsiz ariza'}</h4>
+              <span className="px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold rounded-full uppercase">
+                Kutilmoqda
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              {[app.category_name, app.city_name, app.district].filter(Boolean).join(' • ')}
+            </p>
+          </div>
+          <div className="text-left sm:text-right shrink-0">
+            {submittedAt && <p className="text-[11px] text-slate-400">{submittedAt}</p>}
+            {telegramHandle && (
+              <p className="text-[11px] text-sky-600 font-semibold mt-0.5 flex items-center gap-1 sm:justify-end">
+                <Send className="w-3 h-3" />
+                <span>@{telegramHandle}</span>
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+          {app.phone && (
+            <div className="flex items-center gap-1.5 text-slate-600">
+              <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="font-mono">{app.phone}</span>
+            </div>
+          )}
+          {app.address && (
+            <div className="flex items-center gap-1.5 text-slate-600 min-w-0">
+              <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="truncate">{app.address}</span>
+            </div>
+          )}
+        </div>
+
+        {app.description && (
+          <p className="mt-3 text-xs text-slate-600 bg-slate-50 rounded-xl p-3 border border-slate-100 leading-relaxed whitespace-pre-wrap">
+            {app.description}
+          </p>
+        )}
+
+        {photos.length > 0 && (
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+            {photos.map((p: any) => (
+              <a key={p.id} href={p.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+                <img
+                  src={p.url}
+                  alt={app.name || 'Ariza rasmi'}
+                  loading="lazy"
+                  className="w-20 h-20 rounded-xl object-cover border border-slate-200 hover:opacity-80 transition"
+                />
+              </a>
+            ))}
+          </div>
+        )}
+
+        {hours.length > 0 && (
+          <>
+            <button
+              type="button"
+              onClick={onToggleExpand}
+              className="mt-3 text-[11px] font-bold text-slate-500 hover:text-slate-700 transition cursor-pointer inline-flex items-center gap-1"
+            >
+              <Clock className="w-3.5 h-3.5" />
+              <span>{isExpanded ? 'Ish vaqtini yashirish' : 'Ish vaqtini ko‘rsatish'}</span>
+            </button>
+
+            {isExpanded && (
+              <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-1.5 bg-slate-50 rounded-xl p-3 border border-slate-100">
+                {hours.map((h: any) => (
+                  <div key={h.day_of_week} className="flex items-center justify-between text-[11px] gap-2">
+                    <span className="font-semibold text-slate-600 shrink-0">{WEEKDAY_NAMES_UZ[h.day_of_week] ?? '—'}</span>
+                    <span className={`font-mono text-right ${h.is_closed ? 'text-rose-500 font-semibold' : 'text-slate-700'}`}>
+                      {h.is_closed
+                        ? 'Dam olish kuni'
+                        : `${h.open_time || '—'}–${h.close_time || '—'}${h.break_start ? ` (tanaffus ${h.break_start}–${h.break_end})` : ''}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-2 px-4 sm:px-5 py-3 bg-slate-50 border-t border-slate-100">
+        <button
+          type="button"
+          onClick={onApprove}
+          disabled={actionLoading}
+          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+        >
+          {actionLoading ? 'Bajarilmoqda...' : '✅ Tasdiqlash'}
+        </button>
+        <button
+          type="button"
+          onClick={onReject}
+          disabled={actionLoading}
+          className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition cursor-pointer disabled:opacity-50"
+        >
+          ❌ Rad etish
+        </button>
+      </div>
+    </div>
+  );
+};
 
 interface AdminPanelProps {
   onSwitchToPartner?: () => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => {
-  const { t, lang } = useTranslation();
+  const { lang } = useTranslation();
   const [activeTab, setActiveTab] = useState<'overview' | 'reports' | 'businesses' | 'bookings' | 'reviews' | 'promotions' | 'subscriptions' | 'telegram' | 'users' | 'audit'>('overview');
   
   // Data states
@@ -76,45 +290,57 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
   const [resetModalError, setResetModalError] = useState<string | null>(null);
   const [credentialsBanner, setCredentialsBanner] = useState<string | null>(null);
 
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
+  // Telegram bot business applications (review queue)
+  const [bizApplications, setBizApplications] = useState<any[]>([]);
+  const [bizAppsLoading, setBizAppsLoading] = useState<boolean>(true);
+  const [bizAppsError, setBizAppsError] = useState<string | null>(null);
+  const [bizAppActionLoading, setBizAppActionLoading] = useState<string | null>(null);
+  const [expandedBizAppId, setExpandedBizAppId] = useState<string | null>(null);
 
-  // Load Admin Data
+  const { toast, showToast } = useToast();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
+
+  // Escape closes the top-most admin modal.
+  useEscapeKey(() => { setRejectModal(null); setRejectReason(''); }, !!rejectModal);
+  useEscapeKey(() => setInspectBusiness(null), !!inspectBusiness);
+  useEscapeKey(() => setShowCreateUserModal(false), showCreateUserModal);
+  useEscapeKey(() => setResetPasswordTarget(null), !!resetPasswordTarget);
+  useEscapeKey(() => setBlockModalTarget(null), !!blockModalTarget);
+
+  // Load Admin Data — every section independently, so one failing endpoint does not blank the panel.
   const loadData = async () => {
     setLoading(true);
     try {
-      const [ov, rep, charts, bList, subs, tgLogs, uList, aList, health, rList, pList] = await Promise.all([
-        api.getAdminOverview(),
-        api.getAdminReports().catch(() => null),
-        api.getAdminCharts(),
-        api.getAdminBusinesses(),
-        api.getAdminSubscriptions(),
-        api.getAdminTelegramLogs(),
-        api.getAdminUsers(),
-        api.getAdminAuditLogs(),
-        api.getAdminSystemHealth(),
-        api.getAdminReviews().catch(() => []),
-        api.getAdminPromotions().catch(() => []),
-      ]);
-      setOverview(ov);
-      setReportsData(rep);
-      setChartsData(charts);
-      setBusinesses(bList);
-      setSubscriptionsData(subs);
-      setTelegramLogs(tgLogs);
-      setUsers(uList);
-      setAuditLogs(aList);
-      setSystemHealth(health);
-      setReviews(rList || []);
-      setPromotions(pList || []);
+      const sections: Array<{ label: string; run: () => Promise<any>; apply: (value: any) => void }> = [
+        { label: 'Umumiy ko‘rsatkichlar', run: api.getAdminOverview, apply: (v) => setOverview(v && typeof v === 'object' ? v : null) },
+        { label: 'Hisobotlar', run: api.getAdminReports, apply: (v) => setReportsData(normalizeReports(v)) },
+        { label: 'Grafiklar', run: api.getAdminCharts, apply: (v) => setChartsData(v && typeof v === 'object' ? v : null) },
+        { label: 'Bizneslar', run: api.getAdminBusinesses, apply: (v) => setBusinesses(asArray(v)) },
+        { label: 'Obunalar', run: api.getAdminSubscriptions, apply: (v) => setSubscriptionsData(normalizeSubscriptions(v)) },
+        { label: 'Telegram loglari', run: api.getAdminTelegramLogs, apply: (v) => setTelegramLogs(asArray(v)) },
+        { label: 'Foydalanuvchilar', run: api.getAdminUsers, apply: (v) => setUsers(asArray(v)) },
+        { label: 'Audit', run: api.getAdminAuditLogs, apply: (v) => setAuditLogs(asArray(v)) },
+        { label: 'Tizim holati', run: api.getAdminSystemHealth, apply: (v) => setSystemHealth(normalizeSystemHealth(v)) },
+        { label: 'Sharhlar', run: api.getAdminReviews, apply: (v) => setReviews(asArray(v)) },
+        { label: 'Reklamalar', run: api.getAdminPromotions, apply: (v) => setPromotions(asArray(v)) },
+      ];
+      const results = await Promise.allSettled(sections.map((section) => section.run()));
+      const failed: string[] = [];
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          sections[i].apply(result.value);
+        } else {
+          failed.push(sections[i].label);
+          console.error(`Admin panel: "${sections[i].label}" yuklanmadi`, result.reason);
+        }
+      });
+      if (failed.length > 0) {
+        showToast(`Ba’zi bo‘limlar yuklanmadi: ${failed.join(', ')}`, 'error');
+      }
 
       // Load bookings
       loadBookings(1, bookingStatusFilter, bookingSearch);
-    } catch (err) {
-      console.error('Error loading admin panel:', err);
     } finally {
       setLoading(false);
     }
@@ -128,24 +354,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
         status: status === 'ALL' ? undefined : status,
         q: q ? q : undefined,
       });
-      setAllBookings(res.bookings);
-      setBookingsTotal(res.total);
-      setBookingsPage(res.page);
-    } catch (err) {
+      setAllBookings(asArray(res?.bookings));
+      setBookingsTotal(asNumber(res?.total));
+      setBookingsPage(asNumber(res?.page, page) || page);
+    } catch (err: any) {
       console.error('Error loading bookings:', err);
+      showToast(err?.message || 'Bronlarni yuklashda xatolik', 'error');
+    }
+  };
+
+  // Telegram bot business applications load independently — a failure here must not blank the rest of the panel.
+  const loadBusinessApplications = async () => {
+    setBizAppsLoading(true);
+    setBizAppsError(null);
+    try {
+      const apps = await api.getBusinessApplications('PENDING');
+      setBizApplications(asArray(apps));
+    } catch (err: any) {
+      setBizAppsError(err?.message || 'Arizalarni yuklashda xatolik yuz berdi');
+    } finally {
+      setBizAppsLoading(false);
     }
   };
 
   useEffect(() => {
     loadData();
+    loadBusinessApplications();
   }, []);
+
+  const handleApproveBizApplication = async (app: any) => {
+    setBizAppActionLoading(app.id);
+    try {
+      await api.approveBusinessApplication(app.id);
+      showToast(`"${app.name}" arizasi tasdiqlandi va biznes yaratildi`, 'success');
+      await loadBusinessApplications();
+      const [bList, ov] = await Promise.all([
+        api.getAdminBusinesses().catch(() => null),
+        api.getAdminOverview().catch(() => null),
+      ]);
+      if (bList) setBusinesses(asArray(bList));
+      if (ov) setOverview(ov);
+    } catch (err: any) {
+      showToast(err?.message || 'Arizani tasdiqlashda xatolik', 'error');
+    } finally {
+      setBizAppActionLoading(null);
+    }
+  };
+
+  const handleRejectBizApplication = async (app: any) => {
+    const reason = await prompt({
+      title: 'Arizani rad etish',
+      message: `"${app.name}" arizasini rad etish sababini kiriting:`,
+      placeholder: 'Masalan: rasm sifatsiz, manzil noto‘g‘ri...',
+      multiline: true,
+      required: true,
+      confirmText: 'Rad etish',
+      tone: 'danger',
+    });
+    if (!reason?.trim()) return;
+    setBizAppActionLoading(app.id);
+    try {
+      await api.rejectBusinessApplication(app.id, reason.trim());
+      showToast(`"${app.name}" arizasi rad etildi`, 'success');
+      await loadBusinessApplications();
+    } catch (err: any) {
+      showToast(err?.message || 'Arizani rad etishda xatolik', 'error');
+    } finally {
+      setBizAppActionLoading(null);
+    }
+  };
 
   const handleUpdateBusiness = async (id: string, data: { status?: string; is_verified?: boolean; reason?: string }) => {
     setActionLoading(id);
     try {
       await api.updateAdminBusinessStatus(id, data);
       const bList = await api.getAdminBusinesses();
-      setBusinesses(bList);
+      setBusinesses(asArray(bList));
       const ov = await api.getAdminOverview();
       setOverview(ov);
       showToast('Biznes holati muvaffaqiyatli yangilandi!', 'success');
@@ -191,17 +475,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
   };
 
   const handleDeleteReview = async (id: string) => {
-    try {
-      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        if (!window.confirm('Haqiqatan ham ushbu soxta/nojo‘ya sharhni o‘chirmoqchimisiz?')) return;
-      }
-    } catch {
-      // Proceed if confirm is blocked by iframe policy
-    }
+    const ok = await confirm({
+      title: 'Sharhni o‘chirish',
+      message: 'Haqiqatan ham ushbu soxta/nojo‘ya sharhni o‘chirmoqchimisiz?',
+      confirmText: 'O‘chirish',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.deleteAdminReview(id);
       const rList = await api.getAdminReviews();
-      setReviews(rList);
+      setReviews(asArray(rList));
       const ov = await api.getAdminOverview();
       setOverview(ov);
       showToast('Sharh muvaffaqiyatli o‘chirildi', 'success');
@@ -215,9 +499,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
     try {
       await api.extendAdminSubscription(bizId, { months });
       const subs = await api.getAdminSubscriptions();
-      setSubscriptionsData(subs);
+      setSubscriptionsData(normalizeSubscriptions(subs));
       const bList = await api.getAdminBusinesses();
-      setBusinesses(bList);
+      setBusinesses(asArray(bList));
       const ov = await api.getAdminOverview();
       setOverview(ov);
       showToast(`Tarif muvaffaqiyatli ${months} oyga (+${months * 30} kun) uzaytirildi!`, 'success');
@@ -233,9 +517,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
     try {
       await api.confirmAdminPayment(txId);
       const subs = await api.getAdminSubscriptions();
-      setSubscriptionsData(subs);
+      setSubscriptionsData(normalizeSubscriptions(subs));
       const bList = await api.getAdminBusinesses();
-      setBusinesses(bList);
+      setBusinesses(asArray(bList));
       const ov = await api.getAdminOverview();
       setOverview(ov);
       showToast('To‘lov tasdiqlandi va tarif muvaffaqiyatli faollashtirildi!', 'success');
@@ -251,7 +535,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
     try {
       await api.cancelAdminPayment(txId);
       const subs = await api.getAdminSubscriptions();
-      setSubscriptionsData(subs);
+      setSubscriptionsData(normalizeSubscriptions(subs));
       showToast('To‘lov so‘rovi bekor qilindi', 'success');
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
@@ -274,7 +558,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
     try {
       await api.updateAdminUserStatus(id, data);
       const uList = await api.getAdminUsers();
-      setUsers(uList);
+      setUsers(asArray(uList));
       showToast('Foydalanuvchi ma’lumotlari yangilandi', 'success');
     } catch (err: any) {
       showToast(err.message || 'Xatolik', 'error');
@@ -289,13 +573,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
     try {
       await api.updateAdminUserStatus(userId, { status: newStatus, reason });
       const uList = await api.getAdminUsers();
-      setUsers(uList);
+      setUsers(asArray(uList));
       const ov = await api.getAdminOverview();
       setOverview(ov);
       const rep = await api.getAdminReports().catch(() => null);
-      if (rep) setReportsData(rep);
+      if (rep) setReportsData(normalizeReports(rep));
       const aList = await api.getAdminAuditLogs();
-      setAuditLogs(aList);
+      setAuditLogs(asArray(aList));
       setBlockModalTarget(null);
       setBlockReason('');
       showToast('Foydalanuvchi holati o‘zgartirildi', 'success');
@@ -386,7 +670,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       setNewUserPhone('+998');
       setNewUserPassword('');
       const uList = await api.getAdminUsers();
-      setUsers(uList);
+      setUsers(asArray(uList));
     } catch (err: any) {
       setUserModalError(err.message || 'Xatolik yuz berdi');
     } finally {
@@ -426,15 +710,19 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
         setTestStatus(`Xatolik: ${res.error || 'Yuborilmadi'}`);
       }
       const tgLogs = await api.getAdminTelegramLogs();
-      setTelegramLogs(tgLogs);
+      setTelegramLogs(asArray(tgLogs));
     } catch (err: any) {
       setTestStatus(`Xatolik: ${err.message}`);
     }
   };
 
+  // Pending count shown on the "Bizneslar & Arizalar" tab badge folds in both legacy PENDING
+  // businesses and newly submitted Telegram bot applications (single combined badge, per product decision).
+  const combinedPendingCount = (overview?.pendingBizCount || 0) + bizApplications.length;
+
   // Filter businesses
   const filteredBusinesses = businesses.filter((b) => {
-    const matchesSearch = b.name.toLowerCase().includes(bizSearch.toLowerCase()) || 
+    const matchesSearch = (b.name || '').toLowerCase().includes(bizSearch.toLowerCase()) || 
                           b.city_name?.toLowerCase().includes(bizSearch.toLowerCase()) ||
                           b.owner_name?.toLowerCase().includes(bizSearch.toLowerCase());
     const matchesStatus = bizStatusFilter === 'ALL' || b.status === bizStatusFilter;
@@ -507,8 +795,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
             <div>
               <div className="text-[11px] text-amber-400 font-medium">Kutayotgan Arizalar</div>
               <div className="text-lg font-black text-amber-300 mt-0.5 flex items-center gap-1.5">
-                <span>{overview.pendingBizCount}</span>
-                {overview.pendingBizCount > 0 && (
+                <span>{combinedPendingCount}</span>
+                {combinedPendingCount > 0 && (
                   <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping" />
                 )}
               </div>
@@ -581,9 +869,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
           },
           { 
             id: 'businesses', 
-            label: `${lang === 'ru' ? 'Бизнесы и заявки' : lang === 'en' ? 'Businesses & Requests' : 'Bizneslar & Arizalar'} (${businesses.length})`, 
-            icon: Building2, 
-            badge: (overview?.pendingBizCount || 0) > 0 
+            label: `${lang === 'ru' ? 'Бизнесы и заявки' : lang === 'en' ? 'Businesses & Requests' : 'Bizneslar & Arizalar'} (${businesses.length})`,
+            icon: Building2,
+            badge: combinedPendingCount > 0
           },
           { 
             id: 'users', 
@@ -862,7 +1150,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                 <h3 className="text-sm font-black text-slate-900">Ma’lumotlar Bazasi & Tizim Holati</h3>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
-                {Object.entries(systemHealth.tableCounts).map(([tableName, count]) => (
+                {Object.entries(systemHealth.tableCounts ?? {}).map(([tableName, count]) => (
                   <div key={tableName} className="bg-slate-50 rounded-xl p-3 border border-slate-100">
                     <span className="text-[11px] font-mono text-slate-500 uppercase">{tableName}</span>
                     <div className="text-lg font-black text-slate-900 mt-0.5">{String(count)}</div>
@@ -1088,13 +1376,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {reportsData.businesses.topPerformers?.map((b: any, idx: number) => (
-                      <tr key={b.id} className="hover:bg-slate-50/80 transition">
+                      <tr key={b.id ?? idx} className="hover:bg-slate-50/80 transition">
                         <td className="py-3 px-3 text-center font-bold text-slate-400">
                           {idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`}
                         </td>
                         <td className="py-3 px-4">
                           <div className="font-black text-slate-900">{b.name}</div>
-                          <div className="text-[10px] text-slate-400 font-mono">ID: {b.id.slice(0, 8)}...</div>
+                          <div className="text-[10px] text-slate-400 font-mono">ID: {String(b.id ?? '').slice(0, 8)}...</div>
                         </td>
                         <td className="py-3 px-4 text-slate-600">
                           <div>{b.category_name}</div>
@@ -1112,7 +1400,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                         <td className="py-3 px-3 text-center">
                           <span className="inline-flex items-center gap-1 font-bold text-amber-500">
                             <Star className="w-3.5 h-3.5 fill-amber-400" />
-                            <span>{Number(b.rating).toFixed(1)}</span>
+                            <span>{asNumber(b.rating).toFixed(1)}</span>
                           </span>
                         </td>
                         <td className="py-3 px-3 text-center">
@@ -1241,6 +1529,82 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {activeTab === 'businesses' && (
         <div className="space-y-4">
+          {/* Telegram orqali kelgan arizalar */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+            <div className="p-4 sm:p-5 border-b border-slate-100 flex items-center justify-between gap-3 flex-wrap bg-gradient-to-r from-sky-50 to-transparent">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-slate-900 flex items-center gap-2">
+                    <span>Telegram orqali kelgan arizalar</span>
+                    {bizApplications.length > 0 && (
+                      <span className="px-2 py-0.5 bg-amber-100 text-amber-800 text-[10px] font-black rounded-full">
+                        {bizApplications.length} ta
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Bot orqali to‘ldirilgan va ko‘rib chiqishni kutayotgan arizalar
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={loadBusinessApplications}
+                disabled={bizAppsLoading}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg transition cursor-pointer inline-flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${bizAppsLoading ? 'animate-spin' : ''}`} />
+                <span>Yangilash</span>
+              </button>
+            </div>
+
+            <div className="p-4 sm:p-5">
+              {bizAppsLoading && bizApplications.length === 0 && (
+                <div className="py-10 text-center">
+                  <RefreshCw className="w-6 h-6 text-slate-300 animate-spin mx-auto mb-2" />
+                  <p className="text-xs text-slate-400">Arizalar yuklanmoqda...</p>
+                </div>
+              )}
+
+              {!bizAppsLoading && bizAppsError && (
+                <div className="py-8 text-center">
+                  <AlertCircle className="w-6 h-6 text-rose-400 mx-auto mb-2" />
+                  <p className="text-xs text-rose-600 font-semibold">{bizAppsError}</p>
+                  <button
+                    type="button"
+                    onClick={loadBusinessApplications}
+                    className="mt-3 px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 text-[11px] font-bold rounded-lg transition cursor-pointer"
+                  >
+                    Qayta urinish
+                  </button>
+                </div>
+              )}
+
+              {!bizAppsLoading && !bizAppsError && bizApplications.length === 0 && (
+                <p className="text-xs text-slate-400 text-center py-6">Hozircha yangi arizalar yo‘q.</p>
+              )}
+
+              {!bizAppsError && bizApplications.length > 0 && (
+                <div className="space-y-4">
+                  {bizApplications.map((app) => (
+                    <BusinessApplicationCard
+                      key={app.id}
+                      app={app}
+                      isExpanded={expandedBizAppId === app.id}
+                      onToggleExpand={() => setExpandedBizAppId((cur) => (cur === app.id ? null : app.id))}
+                      actionLoading={bizAppActionLoading === app.id}
+                      onApprove={() => handleApproveBizApplication(app)}
+                      onReject={() => handleRejectBizApplication(app)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Filter Bar */}
           <div className="bg-white rounded-2xl border border-slate-200 p-4 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="relative w-full sm:w-80">
@@ -2091,7 +2455,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   <p className="text-[11px] text-emerald-700 mt-1">Ushbu login va parolni biznes egasiga yetkazishingiz mumkin.</p>
                 </div>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setCredentialsBanner(null)}
                 className="p-1 text-emerald-600 hover:text-emerald-800 rounded-lg cursor-pointer transition shrink-0"
               >
@@ -2349,13 +2713,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {rejectModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2 text-rose-600 font-bold">
                 <AlertTriangle className="w-5 h-5" />
                 <span>Arizani rad etish</span>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => { setRejectModal(null); setRejectReason(''); }}
                 className="text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
               >
@@ -2401,7 +2765,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {inspectBusiness && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-slate-200">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl border border-slate-200">
             <div className="flex items-start justify-between pb-4 border-b border-slate-100">
               <div>
                 <div className="flex items-center gap-2">
@@ -2414,7 +2778,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   {inspectBusiness.city_name} • {inspectBusiness.category_name} • {inspectBusiness.address}
                 </p>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setInspectBusiness(null)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
               >
@@ -2533,7 +2897,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {showCreateUserModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
@@ -2544,7 +2908,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   <p className="text-xs text-slate-400">Biznes egasiga login va parol topshirish uchun</p>
                 </div>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setShowCreateUserModal(false)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
               >
@@ -2669,7 +3033,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {resetPasswordTarget && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
@@ -2680,7 +3044,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   <p className="text-xs text-slate-400">Yangi login kalitini o‘rnatish</p>
                 </div>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setResetPasswordTarget(null)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
               >
@@ -2755,7 +3119,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       {/* ======================================================== */}
       {blockModalTarget && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
                 <div className="w-10 h-10 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center">
@@ -2766,7 +3130,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   <p className="text-xs text-slate-500">Kirish huquqini darhol to‘xtatish</p>
                 </div>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setBlockModalTarget(null)}
                 className="text-slate-400 hover:text-slate-600 p-1.5 rounded-full hover:bg-slate-100 cursor-pointer"
               >

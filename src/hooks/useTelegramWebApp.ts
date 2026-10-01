@@ -22,6 +22,12 @@ export interface UseTelegramWebAppReturn {
   };
   openTelegramLink: (url: string) => void;
   closeApp: () => void;
+  /**
+   * Shows the native Telegram BackButton and wires `onClick` to it.
+   * Returns a cleanup that detaches the handler and hides the button.
+   * No-op outside the Telegram WebApp (or on clients older than Bot API 6.1).
+   */
+  showBackButton: (onClick: () => void) => () => void;
 }
 
 declare global {
@@ -113,6 +119,30 @@ export function useTelegramWebApp(): UseTelegramWebAppReturn {
     }
   }, []);
 
+  const showBackButton = useCallback((onClick: () => void) => {
+    const tg = window.Telegram?.WebApp;
+    const backButton = tg?.BackButton;
+    const supported =
+      !!backButton && (typeof tg.isVersionAtLeast !== 'function' || tg.isVersionAtLeast('6.1'));
+    if (!supported || !(tg.initData || tg.initDataUnsafe?.user)) {
+      return () => {};
+    }
+    try {
+      backButton.onClick(onClick);
+      backButton.show();
+    } catch (e) {
+      // ignore
+    }
+    return () => {
+      try {
+        backButton.offClick(onClick);
+        backButton.hide();
+      } catch (e) {
+        // ignore
+      }
+    };
+  }, []);
+
   const closeApp = useCallback(() => {
     const tg = window.Telegram?.WebApp;
     if (tg?.close) {
@@ -133,5 +163,6 @@ export function useTelegramWebApp(): UseTelegramWebAppReturn {
     },
     openTelegramLink,
     closeApp,
+    showBackButton,
   };
 }

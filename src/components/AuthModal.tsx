@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Lock, Mail, User, Phone, AlertCircle, Send, CheckCircle2, ArrowLeft, ExternalLink, Loader2, Copy, Check, Smartphone } from 'lucide-react';
-import { api, setStoredToken } from '../api';
+import { api, setStoredToken, refreshFrom } from '../api';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 import { User as UserType } from '../types';
 import { useTelegramWebApp } from '../hooks/useTelegramWebApp';
 import { useTranslation } from '../i18n/LanguageContext';
 import { NavbatBorLogo } from './NavbatBorLogo';
+import { makePhoneChangeHandler, phoneKeyDownGuard } from '../utils/phoneInput';
 
 interface AuthModalProps {
   initialMode?: 'login' | 'register';
@@ -42,17 +44,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [copiedCode, setCopiedCode] = useState<boolean>(false);
   const [verificationStatus, setVerificationStatus] = useState<'IDLE' | 'WAITING' | 'CONFIRMED' | 'TIMEOUT'>('IDLE');
   const [countdown, setCountdown] = useState<number>(90);
-  const [botOpened, setBotOpened] = useState<boolean>(false);
   const pollTimerRef = useRef<any>(null);
   const countdownTimerRef = useRef<any>(null);
 
   const { isTMA, tgUser, initData, hapticFeedback } = useTelegramWebApp();
+  useEscapeKey(onClose);
+
+  // Delayed onSuccess calls must not fire after the modal is unmounted.
+  const successTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Clean up polling and countdown timers on unmount
   useEffect(() => {
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
+      if (successTimerRef.current) clearTimeout(successTimerRef.current);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     };
   }, []);
 
@@ -68,7 +76,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         initData,
         user: tgUser,
       });
-      setStoredToken(res.token);
+      setStoredToken(res.token, refreshFrom(res));
       hapticFeedback.notification('success');
       onSuccess(res.user);
     } catch (err: any) {
@@ -86,7 +94,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setShowTgView(true);
     setVerificationStatus('WAITING');
     setCountdown(90);
-    setBotOpened(false);
 
     try {
       const session = await api.createTelegramAuthSession();
@@ -115,11 +122,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             clearInterval(pollTimerRef.current);
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
             setVerificationStatus('CONFIRMED');
-            setStoredToken(res.token);
+            setStoredToken(res.token, refreshFrom(res));
             hapticFeedback.notification('success');
-            setTimeout(() => {
-              onSuccess(res.user);
-            }, 800);
+            const user = res.user;
+            successTimerRef.current = setTimeout(() => onSuccess(user), 800);
           } else if (res.status === 'EXPIRED') {
             clearInterval(pollTimerRef.current);
             if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
@@ -141,7 +147,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   // Open real Telegram bot safely across platforms
   const handleOpenTelegramBot = () => {
     if (!tgSession) return;
-    setBotOpened(true);
     const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     if (isMobile) {
       // Try native tg:// protocol first, with fallback to web link
@@ -173,8 +178,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     setError(null);
 
     try {
+      // "+998" placeholder alone is not a phone number — don't send it.
+      const hasPhone = tgPhone.replace(/\D/g, '').length > 3;
       const res = await api.quickTelegramLogin({
-        phone: tgPhone.trim() || undefined,
+        phone: hasPhone ? tgPhone.trim() : undefined,
         sessionId: tgSession?.sessionId,
         code: tgSession?.code,
       });
@@ -183,11 +190,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
         if (countdownTimerRef.current) clearInterval(countdownTimerRef.current);
         setVerificationStatus('CONFIRMED');
-        setStoredToken(res.token);
+        setStoredToken(res.token, refreshFrom(res));
         hapticFeedback.notification('success');
-        setTimeout(() => {
-          onSuccess(res.user);
-        }, 500);
+        successTimerRef.current = setTimeout(() => onSuccess(res.user), 500);
+      } else {
+        setError(res.message || 'Telegram botda tasdiqlash hali yakunlanmagan. Botda /start ni bosing va qayta urinib ko‘ring.');
       }
     } catch (err: any) {
       setError(err.message || 'Kirishda xatolik yuz berdi');
@@ -204,18 +211,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     try {
       if (mode === 'login') {
-        const res = await api.login({ email, password });
-        setStoredToken(res.token);
+        const res = await api.login({ email: email.trim(), password });
+        setStoredToken(res.token ?? null, refreshFrom(res));
         onSuccess(res.user);
       } else {
+        // Role is decided by the backend (always CUSTOMER for self-registration).
         const res = await api.register({
-          email,
+          email: email.trim(),
           password,
-          name,
-          phone,
-          role: 'CUSTOMER',
+          name: name.trim(),
+          phone: phone.trim(),
         });
-        setStoredToken(res.token);
+        setStoredToken(res.token ?? null, refreshFrom(res));
         onSuccess(res.user);
       }
     } catch (err: any) {
@@ -227,16 +234,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleCopyCode = () => {
     if (!tgSession?.code) return;
-    navigator.clipboard.writeText(tgSession.code);
+    navigator.clipboard?.writeText(tgSession.code).catch(() => {});
     setCopiedCode(true);
-    setTimeout(() => setCopiedCode(false), 2000);
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    copyTimerRef.current = setTimeout(() => setCopiedCode(false), 2000);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 overflow-hidden max-h-[90vh] overflow-y-auto no-scrollbar">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={showTgView ? 'Telegram orqali tasdiqlash' : mode === 'login' ? 'Tizimga kirish' : 'Ro‘yxatdan o‘tish'}
+        className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 overflow-hidden max-h-[90vh] overflow-y-auto no-scrollbar"
+      >
         <button
           id="close-auth-modal-btn"
+          aria-label="Yopish"
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"
         >
@@ -387,7 +401,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     type="tel"
                     id="tg-quick-phone-input"
                     value={tgPhone}
-                    onChange={(e) => setTgPhone(e.target.value)}
+                    onChange={makePhoneChangeHandler(setTgPhone)}
+                    onKeyDown={phoneKeyDownGuard}
                     placeholder="+998 90 123 45 67"
                     className="flex-1 px-3 py-2 text-xs bg-white border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-sky-500"
                   />
@@ -500,7 +515,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         type="tel"
                         id="auth-phone-input"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
+                        onChange={makePhoneChangeHandler(setPhone)}
+                        onKeyDown={phoneKeyDownGuard}
                         required
                         className="w-full pl-9 pr-3 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-blue-500"
                       />

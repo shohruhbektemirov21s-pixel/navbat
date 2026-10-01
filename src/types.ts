@@ -11,7 +11,6 @@ export type UserRole =
   | 'EMPLOYEE' 
   | 'CUSTOMER';
 export type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'PENDING_VERIFICATION';
-export type BusinessStatus = 'PENDING' | 'APPROVED' | 'REJECTED' | 'SUSPENDED';
 export type BookingStatus = 'PENDING' | 'CONFIRMED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 export type QueueStatus = 'WAITING' | 'CALLED' | 'SERVING' | 'COMPLETED' | 'SKIPPED';
 
@@ -89,7 +88,8 @@ export interface StaffMember {
   title: string;
   phone?: string;
   avatar_url?: string;
-  service_ids?: string;
+  /** JSON array from the API (legacy builds sent a comma-separated string). */
+  service_ids?: string[] | string | null;
 }
 
 export interface BusinessHours {
@@ -174,86 +174,6 @@ export interface CRMCustomer {
   next_booking_date?: string;
 }
 
-export interface SubscriptionPlan {
-  id: string;
-  name: string;
-  code: string;
-  price_uzs: number;
-  max_staff: number;
-  max_monthly_bookings: number;
-  features_json: string;
-}
-
-export interface TelegramLog {
-  id: string;
-  recipient_type: string;
-  recipient_id?: string;
-  chat_id?: string;
-  message: string;
-  status: string;
-  error_details?: string;
-  created_at: string;
-}
-
-export interface SubscriptionTransaction {
-  id: string;
-  business_id: string;
-  business_name?: string;
-  plan_code: string;
-  amount_uzs: number;
-  duration_days: number;
-  payment_method: string;
-  status: string;
-  created_at: string;
-}
-
-export interface BusinessSubscriptionInfo {
-  business: {
-    id: string;
-    name: string;
-    subscription_plan_code: string;
-    subscription_expires_at: string;
-    subscription_status: 'ACTIVE' | 'EXPIRING_SOON' | 'EXPIRED';
-    telegram_chat_id?: string;
-    days_left: number;
-  };
-  plan: SubscriptionPlan;
-  daysLeft: number;
-  transactions: SubscriptionTransaction[];
-}
-
-export interface AdminOverviewStats {
-  usersCount: number;
-  bizCount: number;
-  activeBizCount: number;
-  pendingBizCount: number;
-  bookingsCount: number;
-  todayBookingsCount: number;
-  revenueTotal: number;
-  monthlyRevenue: number;
-  queueTotal: number;
-  reviewsCount: number;
-  avgRating: string;
-  expiringSoonCount: number;
-  expiredCount: number;
-  telegramLogsCount: number;
-}
-
-export interface AdminChartsData {
-  dailyBookings: Array<{ date: string; count: number; revenue: number }>;
-  categoryStats: Array<{ name: string; bookings_count: number; total_volume: number }>;
-  cityStats: Array<{ name: string; businesses_count: number; bookings_count: number }>;
-}
-
-export interface SystemHealthData {
-  status: string;
-  uptimeSeconds: number;
-  nodeVersion: string;
-  memoryUsageMB: number;
-  tableCounts: Record<string, number>;
-  timestamp: string;
-}
-
 export interface NotificationItem {
   id: string;
   user_id: string;
@@ -266,15 +186,6 @@ export interface NotificationItem {
 
 export interface FavoriteBusiness extends BusinessItem {
   saved_at: string;
-}
-
-export interface AdAnalytics {
-  is_sponsored: boolean;
-  active_promo: any | null;
-  impressions: number;
-  clicks: number;
-  bookings_count: number;
-  ctr_percent: string;
 }
 
 export interface PublicQueueBoard {
@@ -371,17 +282,6 @@ export interface CommissionSummary {
   commissionsCount: number;
 }
 
-export interface OperatingPartnerKPI {
-  newBusinesses: { actual: number; target: number; percentage: number };
-  activeBusinesses: { actual: number; target: number; percentage: number };
-  newPayingClients: { actual: number; target: number; percentage: number };
-  monthlyRevenue: { actual: number; target: number; percentage: number };
-  retentionRate: { actual: number; target: number; percentage: number }; // e.g. 92%
-  churnRate: { actual: number; target: number; percentage: number }; // e.g. 5%
-  customerSatisfaction: { actual: number; target: number; score: string }; // e.g. 4.8 / 5.0 (96%)
-  supportResolutionTime: { actualMinutes: number; targetMinutes: number; text: string }; // e.g. 35 mins
-}
-
 export interface PartnerReport {
   id: string;
   partner_id: string;
@@ -465,5 +365,16 @@ export interface OperatingPartnerOverview {
   kpis: OperatingPartnerKPI;
   recentActivities: OperatingAuditLog[];
   dailyTrend: Array<{ date: string; bookings: number; revenue: number }>;
+}
+
+export interface OperatingPartnerKPI {
+  newBusinesses: { actual: number; target: number; percentage: number };
+  activeBusinesses: { actual: number; target: number; percentage: number };
+  newPayingClients: { actual: number; target: number; percentage: number };
+  monthlyRevenue: { actual: number; target: number; percentage: number };
+  retentionRate: { actual: number; target: number; percentage: number };
+  churnRate: { actual: number; target: number; percentage: number };
+  customerSatisfaction: { actual: number; target: number; score: string };
+  supportResolutionTime: { actualMinutes: number; targetMinutes: number; text: string };
 }
 

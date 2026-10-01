@@ -1,12 +1,10 @@
 import React from 'react';
-import { Send, Shield, ExternalLink } from 'lucide-react';
-import { useTranslation } from '../i18n/LanguageContext';
+import { Send } from 'lucide-react';
 import { NavbatBorLogo } from './NavbatBorLogo';
 
 interface FooterProps {
   onOpenLegal: (type: 'privacy' | 'terms' | 'support') => void;
   onOpenBusinessOnboarding: () => void;
-  onSelectCategory?: (slug: string) => void;
   onNavigate?: (view: 'home' | 'search' | 'for-customers' | 'for-business') => void;
 }
 
@@ -15,8 +13,6 @@ export const Footer: React.FC<FooterProps> = ({
   onOpenBusinessOnboarding,
   onNavigate 
 }) => {
-  const { t } = useTranslation();
-
   return (
     <footer className="bg-slate-900 text-slate-400 text-xs border-t border-slate-800 pb-16 md:pb-6">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">

@@ -3,6 +3,8 @@ import { X, Download, QrCode, Copy, Check } from 'lucide-react';
 import QRCode from 'qrcode';
 import { BusinessItem } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useTimedState } from '../hooks/useTimedState';
 
 interface QRCodeModalProps {
   business: BusinessItem;
@@ -10,9 +12,10 @@ interface QRCodeModalProps {
 }
 
 export const QRCodeModal: React.FC<QRCodeModalProps> = ({ business, onClose }) => {
+  useEscapeKey(onClose);
   const { t } = useTranslation();
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const [copied, setCopied] = useState<boolean>(false);
+  const [copied, showCopied] = useTimedState<boolean>(2000);
 
   // Generate URL for booking
   const bookingUrl = `${window.location.origin}/#business/${business.slug}`;
@@ -31,9 +34,8 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ business, onClose }) =
   }, [bookingUrl]);
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(bookingUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    navigator.clipboard?.writeText(bookingUrl).catch(() => {});
+    showCopied(true);
   };
 
   const handleDownload = () => {
@@ -46,8 +48,8 @@ export const QRCodeModal: React.FC<QRCodeModalProps> = ({ business, onClose }) =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-      <div className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 text-center">
-        <button
+      <div role="dialog" aria-modal="true" className="relative w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-slate-100 p-6 text-center">
+        <button aria-label="Yopish"
           id="close-qr-modal-btn"
           onClick={onClose}
           className="absolute top-4 right-4 p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition cursor-pointer"

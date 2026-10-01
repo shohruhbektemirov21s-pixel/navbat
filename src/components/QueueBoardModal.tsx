@@ -1,7 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Maximize2, Minimize2, X, Volume2, VolumeX, RefreshCw, Clock, Users, Building2 } from 'lucide-react';
+import { Maximize2, Minimize2, X, Volume2, VolumeX, RefreshCw, Clock, Users } from 'lucide-react';
 import { api } from '../api';
 import { PublicQueueBoard } from '../types';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+
+const BOARD_POLL_MS = 4000;
 
 interface QueueBoardModalProps {
   businessSlug: string;
@@ -15,12 +18,16 @@ export const QueueBoardModal: React.FC<QueueBoardModalProps> = ({
   onClose,
 }) => {
   const [data, setData] = useState<PublicQueueBoard | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
   const [currentTime, setCurrentTime] = useState<string>('');
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastCalledIdRef = useRef<string | null>(null);
+  // Read inside the polling loop so toggling sound does not recreate the interval.
+  const soundEnabledRef = useRef<boolean>(soundEnabled);
+  soundEnabledRef.current = soundEnabled;
+
+  useEscapeKey(onClose);
 
   // Play synthetic chime sound using Web Audio API
   const playChime = () => {
@@ -56,42 +63,79 @@ export const QueueBoardModal: React.FC<QueueBoardModalProps> = ({
     }
   };
 
-  const fetchData = async () => {
-    try {
-      const res = await api.getPublicQueueBoard(businessSlug);
-      setData(res);
+  // Board polling: pauses while the tab is hidden, resyncs immediately when visible again.
+  useEffect(() => {
+    let disposed = false;
+    let busy = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
 
-      // Check if there is a newly called ticket to trigger chime
-      if (res.called && res.called.length > 0) {
-        const topCalled = res.called[0];
-        if (topCalled.id !== lastCalledIdRef.current) {
-          lastCalledIdRef.current = topCalled.id;
-          if (soundEnabled) {
-            playChime();
+    const fetchData = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await api.getPublicQueueBoard(businessSlug);
+        if (disposed) return;
+        setData(res);
+
+        // Check if there is a newly called ticket to trigger chime
+        const called = Array.isArray(res?.called) ? res.called : [];
+        if (called.length > 0) {
+          const topCalled = called[0];
+          if (topCalled.id !== lastCalledIdRef.current) {
+            lastCalledIdRef.current = topCalled.id;
+            if (soundEnabledRef.current) {
+              playChime();
+            }
           }
         }
+      } catch (err) {
+        console.error('Error fetching queue board:', err);
+      } finally {
+        busy = false;
       }
-    } catch (err) {
-      console.error('Error fetching queue board:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  useEffect(() => {
+    const start = () => {
+      if (pollTimer === null) pollTimer = setInterval(fetchData, BOARD_POLL_MS);
+    };
+    const stop = () => {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        stop();
+      } else {
+        fetchData();
+        start();
+      }
+    };
+
     fetchData();
-    const interval = setInterval(fetchData, 4000); // refresh every 4s
+    if (document.visibilityState !== 'hidden') start();
+    document.addEventListener('visibilitychange', onVisibilityChange);
 
-    const clockInterval = setInterval(() => {
-      const now = new Date();
-      setCurrentTime(now.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-    }, 1000);
+    const tickClock = () =>
+      setCurrentTime(new Date().toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    tickClock();
+    const clockInterval = setInterval(tickClock, 1000);
 
     return () => {
-      clearInterval(interval);
+      disposed = true;
+      stop();
       clearInterval(clockInterval);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [businessSlug, soundEnabled]);
+  }, [businessSlug]);
+
+  // Keep the fullscreen icon in sync when the user exits with Esc / browser UI.
+  useEffect(() => {
+    const onFullscreenChange = () => setIsFullscreen(Boolean(document.fullscreenElement));
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, []);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -103,14 +147,17 @@ export const QueueBoardModal: React.FC<QueueBoardModalProps> = ({
     }
   };
 
-  const serving = data?.serving || [];
-  const called = data?.called || [];
-  const waiting = data?.waiting || [];
+  const serving = Array.isArray(data?.serving) ? data.serving : [];
+  const called = Array.isArray(data?.called) ? data.called : [];
+  const waiting = Array.isArray(data?.waiting) ? data.waiting : [];
 
   return (
     <div
       ref={containerRef}
       id="queue-tv-board"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Elektron navbat tablosi"
       className="fixed inset-0 z-50 bg-slate-950 text-white flex flex-col overflow-hidden font-sans select-none"
     >
       {/* Top Header Bar */}
@@ -145,6 +192,8 @@ export const QueueBoardModal: React.FC<QueueBoardModalProps> = ({
                 if (!soundEnabled) playChime();
               }}
               title={soundEnabled ? 'Ovozni o‘chirish' : 'Ovozni yoqish'}
+              aria-label={soundEnabled ? 'Ovozni o‘chirish' : 'Ovozni yoqish'}
+              aria-pressed={soundEnabled}
               className={`p-2.5 rounded-xl border transition ${
                 soundEnabled
                   ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300'
@@ -167,6 +216,7 @@ export const QueueBoardModal: React.FC<QueueBoardModalProps> = ({
               id="tv-close-btn"
               onClick={onClose}
               title="Yopish"
+              aria-label="Yopish"
               className="p-2.5 rounded-xl bg-rose-950/40 hover:bg-rose-900/60 border border-rose-800 text-rose-300 transition"
             >
               <X className="w-5 h-5" />

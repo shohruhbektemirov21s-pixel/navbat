@@ -4,10 +4,10 @@
  * real-time slot availability, past-slot blocking, and minimum booking notice.
  */
 
-export const TIMEZONE_TASHKENT = 'Asia/Tashkent';
-export const DEFAULT_MIN_NOTICE_MINUTES = 30;
+const TIMEZONE_TASHKENT = 'Asia/Tashkent';
+const DEFAULT_MIN_NOTICE_MINUTES = 30;
 
-export interface TashkentDateTime {
+interface TashkentDateTime {
   dateStr: string; // YYYY-MM-DD
   timeStr: string; // HH:mm
   year: number;
@@ -21,7 +21,7 @@ export interface TashkentDateTime {
   isoString: string; // YYYY-MM-DDTHH:mm:ss+05:00
 }
 
-export interface AvailabilityOptions {
+interface AvailabilityOptions {
   minNoticeMinutes?: number; // Default 30 min (with graceful next-interval allowance e.g. at 16:11 -> 16:30 is available)
   referenceDate?: Date; // Allows passing a custom reference time (e.g. for testing / server sync)
 }
@@ -78,28 +78,10 @@ export function getTashkentNow(referenceDate: Date = new Date()): TashkentDateTi
 /**
  * Convert HH:mm to minutes from midnight
  */
-export function toMinutes(timeStr: string): number {
+function toMinutes(timeStr: string): number {
   if (!timeStr) return 0;
   const [h, m] = timeStr.split(':').map(Number);
   return (h || 0) * 60 + (m || 0);
-}
-
-/**
- * Convert minutes from midnight to HH:mm
- */
-export function toTimeString(minutes: number): string {
-  const h = Math.floor(minutes / 60).toString().padStart(2, '0');
-  const m = (minutes % 60).toString().padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-/**
- * Combine selected date (YYYY-MM-DD) and time (HH:mm) into a real Date object in Asia/Tashkent
- */
-export function createTashkentDateTime(dateStr: string, timeStr: string): Date {
-  const cleanDate = dateStr.trim();
-  const cleanTime = timeStr.trim().length === 5 ? timeStr.trim() : timeStr.trim().padStart(5, '0');
-  return new Date(`${cleanDate}T${cleanTime}:00+05:00`);
 }
 
 /**
@@ -112,7 +94,7 @@ export function createTashkentDateTime(dateStr: string, timeStr: string): Date {
  * - Apply minimum booking notice (default 30 minutes).
  * - At 16:11, 16:30 can be available; 09:00-16:00 must be unavailable.
  */
-export function isSlotInPastOrTooSoon(
+function isSlotInPastOrTooSoon(
   dateStr: string,
   timeStr: string,
   options: AvailabilityOptions = {}

@@ -1,23 +1,18 @@
 import React from 'react';
-import { 
-  ArrowLeft, Clock, Smartphone, Calendar, Bell, 
-  ShieldCheck, Sparkles, CheckCircle2, ChevronRight, Send
+import {
+  ArrowLeft, Clock, Smartphone, Calendar, Bell,
+  ShieldCheck, Sparkles, Send
 } from 'lucide-react';
-import { useTranslation } from '../i18n/LanguageContext';
 
 interface CustomerBenefitsPageProps {
   onBack: () => void;
   onExplore: () => void;
-  onOpenAuth: () => void;
 }
 
 export const CustomerBenefitsPage: React.FC<CustomerBenefitsPageProps> = ({
   onBack,
   onExplore,
-  onOpenAuth,
 }) => {
-  const { t } = useTranslation();
-
   const benefits = [
     {
       icon: Clock,

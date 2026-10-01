@@ -1,9 +1,10 @@
 from django.urls import path
+
 from .views import (
-    PartnerOverviewView, PartnerBusinessesView, PartnerBusinessStatusUpdateView,
-    PartnerBusinessTariffUpdateView, CRMLeadsListView, CRMLeadDetailView,
-    CRMLeadStageUpdateView, CRMLeadConvertView, PartnerCommissionsView,
-    PartnerReportsView, PartnerReportDraftView, PartnerKPIsView, PartnerTeamUsersView
+    CRMLeadConvertView, CRMLeadDetailView, CRMLeadsListView, CRMLeadStageUpdateView, PartnerAuditLogsView,
+    PartnerBusinessesView, PartnerBusinessStatusUpdateView, PartnerBusinessTariffUpdateView, PartnerCommissionSettleView,
+    PartnerCommissionsView, PartnerKPIsView, PartnerOverviewView, PartnerReportDraftView, PartnerReportReviewView,
+    PartnerReportsView, PartnerTeamUsersView,
 )
 
 urlpatterns = [
@@ -18,10 +19,13 @@ urlpatterns = [
     path('partner/crm/leads/<str:pk>/stage', CRMLeadStageUpdateView.as_view(), name='partner-crm-lead-stage'),
     path('partner/crm/leads/<str:pk>/convert', CRMLeadConvertView.as_view(), name='partner-crm-lead-convert'),
 
-    # Commissions & Reports
+    # Commissions & reports
     path('partner/commissions', PartnerCommissionsView.as_view(), name='partner-commissions'),
+    path('partner/commissions/<str:pk>/settle', PartnerCommissionSettleView.as_view(), name='partner-commission-settle'),
     path('partner/reports', PartnerReportsView.as_view(), name='partner-reports'),
     path('partner/reports/generate-draft', PartnerReportDraftView.as_view(), name='partner-reports-draft'),
+    path('partner/reports/<str:pk>/review', PartnerReportReviewView.as_view(), name='partner-report-review'),
     path('partner/kpis', PartnerKPIsView.as_view(), name='partner-kpis'),
+    path('partner/audit-logs', PartnerAuditLogsView.as_view(), name='partner-audit-logs'),
     path('partner/team-users', PartnerTeamUsersView.as_view(), name='partner-team-users'),
 ]

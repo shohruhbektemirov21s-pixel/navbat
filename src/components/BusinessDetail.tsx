@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Star, MapPin, Phone, Clock, CheckCircle, QrCode, 
   ArrowLeft, Calendar, Users, Tv, Megaphone, Navigation, 
-  ExternalLink, Send, Share2, ShieldCheck, Sparkles, 
-  Award, Zap, CreditCard, Bell, ChevronRight, Check, 
-  Search, Globe, Info, ZoomIn, FileText, CheckSquare, Layers
+  ExternalLink, Send, ShieldCheck, Sparkles,
+  Award, Zap, CreditCard, Bell, ChevronRight, Check,
+  Search, ZoomIn, FileText, CheckSquare, Layers
 } from 'lucide-react';
 import { api } from '../api';
 import { Service, StaffMember, BusinessHours, Review, User } from '../types';
@@ -13,6 +13,8 @@ import { BookingModal } from './BookingModal';
 import { QueueModal } from './QueueModal';
 import { QRCodeModal } from './QRCodeModal';
 import { QueueBoardModal } from './QueueBoardModal';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { asArray } from '../utils/safe';
 
 interface BusinessDetailProps {
   slug: string;
@@ -65,28 +67,54 @@ export const BusinessDetail: React.FC<BusinessDetailProps> = ({
   // Service search query
   const [serviceSearch, setServiceSearch] = useState<string>('');
 
-  const loadDetail = async () => {
-    setLoading(true);
-    try {
-      let coords = userCoords;
-      if (!coords) {
-        try {
-          const s = sessionStorage.getItem('navbatbor_user_coords');
-          if (s) coords = JSON.parse(s);
-        } catch (e) {}
-      }
-      const res = await api.getBusinessBySlug(slug, coords || undefined);
-      setData(res);
-    } catch (err) {
-      console.error('Error fetching business details:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  useEscapeKey(() => setIsLightboxOpen(false), isLightboxOpen);
+
+  /** Bumped to refetch silently (e.g. after joining the queue) without unmounting open modals. */
+  const [reloadKey, setReloadKey] = useState<number>(0);
+  const loadedSlugRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    const loadDetail = async () => {
+      const silent = loadedSlugRef.current === slug;
+      if (!silent) setLoading(true);
+      try {
+        let coords = userCoords;
+        if (!coords) {
+          try {
+            const s = sessionStorage.getItem('navbatbor_user_coords');
+            if (s) coords = JSON.parse(s);
+          } catch (e) {}
+        }
+        const res = await api.getBusinessBySlug(slug, coords || undefined);
+        if (cancelled) return;
+        loadedSlugRef.current = slug;
+        // Normalise list fields so the page never crashes on a partial payload.
+        setData(
+          res?.business
+            ? {
+                business: res.business,
+                services: asArray(res.services),
+                staff: asArray(res.staff),
+                hours: asArray(res.hours),
+                reviews: asArray(res.reviews),
+              }
+            : null
+        );
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Error fetching business details:', err);
+          if (!silent) setData(null);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
     loadDetail();
-  }, [slug, userCoords]);
+    return () => {
+      cancelled = true;
+    };
+  }, [slug, userCoords, reloadKey]);
 
   // Sync initial description language with global app language
   useEffect(() => {
@@ -206,7 +234,7 @@ NavbatBor yagona platformasi bilan integratsiya orqali siz real vaqtda jonli ele
   const filteredServices = services.filter((s) => {
     if (!serviceSearch.trim()) return true;
     const q = serviceSearch.toLowerCase().trim();
-    return s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q));
+    return (s.name || '').toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q));
   });
 
   const activePhoto = galleryImages[selectedImageIndex] || galleryImages[0] || { url: business.logo_url, title: business.name };
@@ -902,9 +930,13 @@ NavbatBor yagona platformasi bilan integratsiya orqali siz real vaqtda jonli ele
       {isLightboxOpen && (
         <div 
           className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={activePhoto.title || 'Rasm'}
           onClick={() => setIsLightboxOpen(false)}
         >
           <button
+            aria-label="Yopish"
             onClick={() => setIsLightboxOpen(false)}
             className="absolute top-4 right-4 text-white text-sm font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-full cursor-pointer"
           >
@@ -938,7 +970,6 @@ NavbatBor yagona platformasi bilan integratsiya orqali siz real vaqtda jonli ele
           onSuccess={(b) => {
             onBookingSuccess(b);
           }}
-          onOpenAuth={onOpenAuth}
           onGoToBookings={onGoToBookings}
         />
       )}
@@ -950,7 +981,7 @@ NavbatBor yagona platformasi bilan integratsiya orqali siz real vaqtda jonli ele
           currentUser={currentUser}
           onClose={() => setShowQueueModal(false)}
           onSuccess={() => {
-            loadDetail();
+            setReloadKey((k) => k + 1);
           }}
           onOpenAuth={onOpenAuth}
         />

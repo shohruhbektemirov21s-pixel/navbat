@@ -1,5 +1,5 @@
 import React from 'react';
-import { Star, MapPin, Clock, CheckCircle, QrCode, ArrowRight, Heart, Users, Sparkles, Megaphone, Navigation } from 'lucide-react';
+import { Star, MapPin, Clock, CheckCircle, QrCode, ArrowRight, Heart, Sparkles, Megaphone, Navigation } from 'lucide-react';
 import { BusinessItem } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
 
@@ -7,7 +7,6 @@ interface BusinessCardProps {
   business: BusinessItem;
   onSelect: (business: BusinessItem) => void;
   onOpenQR: (business: BusinessItem) => void;
-  onJoinQueue?: (business: BusinessItem) => void;
   isFavorite?: boolean;
   onToggleFavorite?: (businessId: string) => void;
 }
@@ -16,7 +15,6 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
   business, 
   onSelect, 
   onOpenQR,
-  onJoinQueue,
   isFavorite = false,
   onToggleFavorite
 }) => {
@@ -119,7 +117,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
           {business.distance_km !== null && business.distance_km !== undefined && (
             <span className="px-2 py-0.5 bg-blue-600 text-white text-[10px] font-extrabold rounded-md flex items-center gap-1 shadow-xs animate-in fade-in">
               <Navigation className="w-2.5 h-2.5 fill-white" />
-              <span>{business.distance_km < 1 ? `${Math.round(business.distance_km * 1000)} m` : `${business.distance_km.toFixed(1)} km`}</span>
+              <span>{Number(business.distance_km) < 1 ? `${Math.round(Number(business.distance_km) * 1000)} m` : `${Number(business.distance_km).toFixed(1)} km`}</span>
             </span>
           )}
         </div>
@@ -222,7 +220,7 @@ export const BusinessCard: React.FC<BusinessCardProps> = ({
               {business.distance_km !== null && business.distance_km !== undefined && (
                 <span className="shrink-0 text-[10px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
                   <Navigation className="w-2.5 h-2.5" />
-                  <span>{business.distance_km < 1 ? `${Math.round(business.distance_km * 1000)} m` : `${business.distance_km.toFixed(1)} km`}</span>
+                  <span>{Number(business.distance_km) < 1 ? `${Math.round(Number(business.distance_km) * 1000)} m` : `${Number(business.distance_km).toFixed(1)} km`}</span>
                 </span>
               )}
             </div>

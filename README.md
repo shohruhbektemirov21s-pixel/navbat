@@ -55,7 +55,19 @@ navbatbor/
 * Python 3.10+
 * Node.js 18+ va npm
 
-### 2. Tezkor ishga tushirish:
+### 2. Muhit o'zgaruvchilari:
+Loyiha ildizida `.env` faylini yarating (`.env.example` namunasi bo'yicha). Muhim o'zgaruvchilar:
+
+| O'zgaruvchi | Tavsif |
+| :--- | :--- |
+| `DJANGO_DEBUG` | `True` — lokal ishlab chiqish, `False` — production (shart) |
+| `DJANGO_SECRET_KEY` | `DEBUG=False` bo'lsa majburiy, uzun tasodifiy qiymat |
+| `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, `CSRF_TRUSTED_ORIGINS` | vergul bilan ajratilgan ro'yxat |
+| `DATABASE_URL` | bo'sh — SQLite (dev), `postgres://user:pass@host:5432/db` — production |
+| `ALLOW_DEV_QUICK_LOGIN` | faqat `DEBUG=True` da telefon orqali tezkor kirishni yoqadi |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` | Telegram bot integratsiyasi uchun |
+
+### 3. Tezkor ishga tushirish (dasturlash rejimi):
 ```bash
 ./start.sh
 ```
@@ -65,11 +77,41 @@ Yoki alohida terminallarda:
 # Backend (Django REST Framework):
 cd backend
 source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_data          # faqat DEBUG=True da (demo ma'lumotlar)
 python manage.py runserver 0.0.0.0:8000
 
 # Frontend (React + Vite):
+npm install
 npm run dev
 ```
+
+### 4. Telegram bot (xabarnomalar va `/start auth_..` / `link_..` havolalari):
+```bash
+cd backend && source venv/bin/activate
+python manage.py telegram_bot       # long-polling rejimi
+```
+Webhook rejimi kerak bo'lsa, `POST /api/telegram/webhook/<TELEGRAM_WEBHOOK_SECRET>` manzilini botga ulang.
+
+### 5. Testlar:
+```bash
+cd backend && source venv/bin/activate
+python manage.py test apps
+```
+
+### 6. Production (misol):
+```bash
+cd backend && source venv/bin/activate
+pip install -r requirements.txt
+DJANGO_DEBUG=False DJANGO_SECRET_KEY=... DATABASE_URL=postgres://... \
+  python manage.py migrate
+DJANGO_DEBUG=False DJANGO_SECRET_KEY=... DATABASE_URL=postgres://... \
+  python manage.py collectstatic --noinput
+DJANGO_DEBUG=False DJANGO_SECRET_KEY=... DATABASE_URL=postgres://... \
+  gunicorn navbat_backend.wsgi:application --bind 0.0.0.0:8000
+```
+Statik fayllar `whitenoise` orqali to'g'ridan-to'g'ri gunicorn ichidan xizmat qiladi.
 
 ---
 

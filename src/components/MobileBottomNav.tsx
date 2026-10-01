@@ -195,7 +195,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           >
             <UserIcon className="w-5 h-5" />
             <span className="text-[10px] mt-1 font-medium leading-none truncate max-w-[50px]">
-              {user.name.split(' ')[0]}
+              {(user.name || '').split(' ')[0]}
             </span>
           </button>
         ) : (

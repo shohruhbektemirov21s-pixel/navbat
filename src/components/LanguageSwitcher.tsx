@@ -4,13 +4,11 @@ import { useTranslation } from '../i18n/LanguageContext';
 import { Language } from '../i18n/translations';
 
 interface LanguageSwitcherProps {
-  compact?: boolean;
   className?: string;
   idPrefix?: string;
 }
 
 export const LanguageSwitcher: React.FC<LanguageSwitcherProps> = ({
-  compact = false,
   className = '',
   idPrefix = 'nav',
 }) => {

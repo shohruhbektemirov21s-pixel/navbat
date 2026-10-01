@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Calendar, Clock, MapPin, AlertCircle, CheckCircle2, 
-  XCircle, Star, Phone, RefreshCw, ChevronRight, Share2,
-  Send, Bell, Smartphone, Heart, User as UserIcon, Check,
+  Calendar, Clock, MapPin, AlertCircle, CheckCircle2,
+  Star, RefreshCw, ChevronRight,
+  Send, Bell, Heart, User as UserIcon, Check,
   Trash2, ExternalLink, History, RotateCcw, CalendarPlus,
-  CalendarCheck, X, Sparkles
+  X
 } from 'lucide-react';
 import { api } from '../api';
-import { Booking, QueueEntry, User, FavoriteBusiness, NotificationItem } from '../types';
+import { Booking, User, FavoriteBusiness, NotificationItem } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
 import { ReviewModal } from './ReviewModal';
+import { useTimedState } from '../hooks/useTimedState';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { useConfirm } from './ui/Dialog';
+import { asArray } from '../utils/safe';
+import { makePhoneChangeHandler, phoneKeyDownGuard } from '../utils/phoneInput';
 
 interface CustomerDashboardProps {
   currentUser: User;
@@ -24,7 +29,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   onSelectBusiness,
   onUserUpdate,
 }) => {
-  const { t, translateCategory, translateCity } = useTranslation();
+  const { t, translateCategory } = useTranslation();
   const [activeTab, setActiveTab] = useState<'bookings' | 'queue' | 'favorites' | 'notifications' | 'profile'>('bookings');
   const [bookingSubTab, setBookingSubTab] = useState<'upcoming' | 'past'>('upcoming');
   
@@ -42,11 +47,13 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [profilePhone, setProfilePhone] = useState<string>(currentUser.phone || '');
   const [profileTelegram, setProfileTelegram] = useState<string>(currentUser.telegram_chat_id || '');
   const [savingProfile, setSavingProfile] = useState<boolean>(false);
-  const [profileSuccess, setProfileSuccess] = useState<string>('');
-  const [profileError, setProfileError] = useState<string>('');
-  const [testTgStatus, setTestTgStatus] = useState<string | null>(null);
+  // Auto-dismissing banners (timers are cleared on unmount).
+  const [profileSuccess, showProfileSuccess, clearProfileSuccess] = useTimedState<string>(4000);
+  const [profileError, showProfileError, clearProfileError] = useTimedState<string>(5000);
+  const [testTgStatus, showTestTgStatus] = useTimedState<string>(4000);
   const [testingTg, setTestingTg] = useState<boolean>(false);
-  const [actionError, setActionError] = useState<string | null>(null);
+  const [actionError, showActionError] = useTimedState<string>(5000);
+  const confirm = useConfirm();
 
   // Modals state
   const [reviewBooking, setReviewBooking] = useState<Booking | null>(null);
@@ -64,21 +71,32 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const [rebookingSuccessData, setRebookingSuccessData] = useState<any | null>(null);
   const [rebookingError, setRebookingError] = useState<string | null>(null);
 
+  useEscapeKey(() => setRescheduleBooking(null), !!rescheduleBooking);
+  useEscapeKey(() => setRebookModalOpen(false), rebookModalOpen && !!selectedHistoryBooking);
+
+  // Each section loads independently: one failing endpoint must not blank the dashboard.
   const loadData = async () => {
     setLoading(true);
     try {
-      const [bList, qRes, favs, notifs] = await Promise.all([
+      const [bList, qRes, favs, notifs] = await Promise.allSettled([
         api.getCustomerBookings(),
         api.getMyActiveQueue(),
-        api.getCustomerFavorites().catch(() => []),
-        api.getNotifications().catch(() => []),
+        api.getCustomerFavorites(),
+        api.getNotifications(),
       ]);
-      setBookings(bList);
-      setActiveQueue(qRes.activeQueue);
-      setFavorites(favs);
-      setNotifications(notifs);
-    } catch (err) {
-      console.error('Customer dashboard load error:', err);
+      const failed: string[] = [];
+      if (bList.status === 'fulfilled') setBookings(asArray(bList.value));
+      else failed.push('Bronlar');
+      if (qRes.status === 'fulfilled') setActiveQueue(qRes.value?.activeQueue ?? null);
+      else failed.push('Navbat');
+      if (favs.status === 'fulfilled') setFavorites(asArray(favs.value));
+      else failed.push('Sevimlilar');
+      if (notifs.status === 'fulfilled') setNotifications(asArray(notifs.value));
+      else failed.push('Bildirishnomalar');
+      if (failed.length > 0) {
+        console.error('Customer dashboard: some sections failed', failed);
+        showActionError(`Ba’zi bo‘limlar yuklanmadi: ${failed.join(', ')}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -91,8 +109,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setSavingProfile(true);
-    setProfileSuccess('');
-    setProfileError('');
+    clearProfileSuccess();
+    clearProfileError();
     try {
       const res = await api.updateCustomerProfile({
         name: profileName,
@@ -102,14 +120,12 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       if (res.user && onUserUpdate) {
         onUserUpdate(res.user);
       }
-      setProfileSuccess(t('saved'));
-      setTimeout(() => setProfileSuccess(''), 4000);
+      showProfileSuccess(t('saved'));
       if (profileTelegram) {
         api.sendTestTelegram({ chat_id: profileTelegram }).catch(() => {});
       }
     } catch (err: any) {
-      setProfileError(err.message || 'Xatolik yuz berdi');
-      setTimeout(() => setProfileError(''), 5000);
+      showProfileError(err.message || 'Xatolik yuz berdi');
     } finally {
       setSavingProfile(false);
     }
@@ -143,19 +159,19 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
   };
 
   const handleCancelBooking = async (id: string) => {
-    try {
-      if (typeof window !== 'undefined' && typeof window.confirm === 'function') {
-        if (!window.confirm(t('confirm_cancel_booking'))) return;
-      }
-    } catch {
-      // Proceed if confirm is blocked by iframe policy
-    }
+    const ok = await confirm({
+      title: t('cancel_booking'),
+      message: t('confirm_cancel_booking'),
+      confirmText: t('cancel_booking'),
+      cancelText: t('close'),
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await api.cancelBooking(id, 'Cancelled by customer');
       loadData();
     } catch (err: any) {
-      setActionError(err.message || 'Bandlikni bekor qilishda xatolik yuz berdi');
-      setTimeout(() => setActionError(null), 5000);
+      showActionError(err.message || 'Bandlikni bekor qilishda xatolik yuz berdi');
     }
   };
 
@@ -179,9 +195,9 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
     const details = encodeURIComponent(`NavbatBor: ${b.staff_name}, #${b.booking_number}`);
     const location = encodeURIComponent(b.business_address || '');
     
-    const startDate = b.booking_date.replace(/-/g, '');
-    const startTime = b.start_time.replace(':', '') + '00';
-    const endTime = b.end_time.replace(':', '') + '00';
+    const startDate = (b.booking_date || '').replace(/-/g, '');
+    const startTime = (b.start_time || '00:00').replace(':', '').slice(0, 4) + '00';
+    const endTime = (b.end_time || b.start_time || '00:00').replace(':', '').slice(0, 4) + '00';
 
     return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startDate}T${startTime}/${startDate}T${endTime}&details=${details}&location=${location}`;
   };
@@ -859,7 +875,8 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
               <input
                 type="tel"
                 value={profilePhone}
-                onChange={(e) => setProfilePhone(e.target.value)}
+                onChange={makePhoneChangeHandler(setProfilePhone)}
+                onKeyDown={phoneKeyDownGuard}
                 placeholder="+998"
                 className="w-full border border-slate-300 rounded-xl p-2.5 focus:outline-blue-600"
               />
@@ -899,8 +916,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                         window.location.href = res.deepLink;
                       }
                     } catch (e: any) {
-                      setProfileError(e.message || 'Telegram xatosi');
-                      setTimeout(() => setProfileError(''), 5000);
+                      showProfileError(e.message || 'Telegram xatosi');
                     }
                   }}
                   className="px-4 py-2 bg-[#2AABEE] hover:bg-[#229ED9] text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
@@ -935,11 +951,9 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                       setTestingTg(true);
                       try {
                         await api.sendTestTelegram({ chat_id: profileTelegram });
-                        setTestTgStatus('Xabar yuborildi!');
-                        setTimeout(() => setTestTgStatus(null), 3500);
+                        showTestTgStatus('Xabar yuborildi!', 3500);
                       } catch (err: any) {
-                        setTestTgStatus('Xatolik: ' + (err.message || 'Yuborilmadi'));
-                        setTimeout(() => setTestTgStatus(null), 4000);
+                        showTestTgStatus('Xatolik: ' + (err.message || 'Yuborilmadi'), 4000);
                       } finally {
                         setTestingTg(false);
                       }
@@ -969,7 +983,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       {/* Reschedule Modal */}
       {rescheduleBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
             <h3 className="text-base font-bold text-slate-900 mb-1">{t('reschedule_booking')}</h3>
             <p className="text-xs text-slate-500 mb-4">{rescheduleBooking.business_name} — {rescheduleBooking.service_name}</p>
 
@@ -1039,14 +1053,14 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
       {/* 1-Click Quick Re-book Modal */}
       {rebookModalOpen && selectedHistoryBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
+          <div role="dialog" aria-modal="true" className="bg-white rounded-3xl max-w-md w-full shadow-2xl overflow-hidden border border-slate-100 animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CalendarPlus className="w-5 h-5 text-blue-200" />
                 <h3 className="font-extrabold text-base">{t('rebook_modal_title')}</h3>
               </div>
-              <button
+              <button aria-label="Yopish"
                 onClick={() => setRebookModalOpen(false)}
                 className="p-1.5 text-white/80 hover:text-white hover:bg-white/10 rounded-xl transition cursor-pointer"
               >

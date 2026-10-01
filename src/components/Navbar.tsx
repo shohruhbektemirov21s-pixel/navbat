@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { 
-  Calendar, Clock, User as UserIcon, Shield, Briefcase, 
-  LogOut, LogIn, ChevronDown, CheckCircle, Smartphone,
-  Menu, X, MapPin, Sparkles, Building2, Send, Globe, QrCode
+  Clock, Shield, Briefcase,
+  LogOut, Menu, X, MapPin, Send, Globe, QrCode
 } from 'lucide-react';
 import { User, City } from '../types';
 import { useTranslation } from '../i18n/LanguageContext';
@@ -147,7 +146,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={onOpenBusinessOnboarding}
               className="hidden lg:flex items-center gap-1.5 px-3 py-2 text-xs lg:text-sm font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-xl transition min-h-[40px] cursor-pointer"
             >
-              <Building2 className="w-3.5 h-3.5" />
+              <Send className="w-3.5 h-3.5" />
               <span>{t('connect_business')}</span>
             </button>
           )}
@@ -398,7 +397,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 }}
                 className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-semibold text-blue-700 hover:bg-blue-50 transition flex items-center gap-2 min-h-[44px] cursor-pointer"
               >
-                <Building2 className="w-4 h-4 text-blue-600" />
+                <Send className="w-4 h-4 text-blue-600" />
                 <span>{t('connect_business')}</span>
               </button>
             )}

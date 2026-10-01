@@ -90,6 +90,7 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     @property
     def is_founder(self):
+        """True for platform administrators (FOUNDER or ADMIN)."""
         return self.role in [UserRole.FOUNDER, UserRole.ADMIN]
 
     @property
@@ -113,11 +114,15 @@ class TelegramLinkToken(models.Model):
 
 
 class TelegramAuthSession(models.Model):
+    """Browser login session confirmed by the Telegram bot (`/start auth_<session_id>` or the 6-digit code)."""
     session_id = models.CharField(max_length=64, unique=True, db_index=True)
     code = models.CharField(max_length=16, db_index=True)
-    status = models.CharField(max_length=20, default='PENDING')  # PENDING, CONFIRMED, EXPIRED
+    status = models.CharField(max_length=20, default='PENDING')  # PENDING, CONFIRMED, CONSUMED, EXPIRED
     user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    # Legacy column, no longer populated: tokens are minted on demand, never stored.
     token = models.TextField(blank=True, null=True)
+    telegram_chat_id = models.CharField(max_length=64, blank=True, default='')
+    confirmed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
 

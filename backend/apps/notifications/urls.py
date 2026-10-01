@@ -1,9 +1,9 @@
 from django.urls import path
 from .views import (
-    NotificationsListView, NotificationMarkReadView, NotificationReadAllView,
+    BusinessConnectLinkView, NotificationsListView, NotificationMarkReadView, NotificationReadAllView,
     TelegramBotInfoView, GenerateTelegramLinkTokenView, SendTestTelegramView,
     SendQueueTicketToTelegramView, SendBookingVoucherToTelegramView,
-    AdminTelegramLogsView, AdminSendTelegramView
+    AdminTelegramLogsView, AdminSendTelegramView, TelegramWebhookView
 )
 
 urlpatterns = [
@@ -13,6 +13,7 @@ urlpatterns = [
 
     path('telegram/bot-info', TelegramBotInfoView.as_view(), name='telegram-bot-info'),
     path('telegram/generate-link-token', GenerateTelegramLinkTokenView.as_view(), name='generate-link-token'),
+    path('telegram/business-connect-link', BusinessConnectLinkView.as_view(), name='telegram-business-connect-link'),
     path('telegram/test', SendTestTelegramView.as_view(), name='telegram-test'),
 
     path('queue/<str:entry_id>/send-to-telegram', SendQueueTicketToTelegramView.as_view(), name='queue-send-telegram'),
@@ -20,4 +21,5 @@ urlpatterns = [
 
     path('admin/telegram-logs', AdminTelegramLogsView.as_view(), name='admin-telegram-logs'),
     path('admin/telegram/send', AdminSendTelegramView.as_view(), name='admin-telegram-send'),
+    path('telegram/webhook/<str:secret>', TelegramWebhookView.as_view(), name='telegram-webhook'),
 ]

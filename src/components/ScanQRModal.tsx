@@ -5,15 +5,13 @@ import {
 } from 'lucide-react';
 import jsQR from 'jsqr';
 import { api } from '../api';
-import { BusinessItem, User } from '../types';
-import { useTranslation } from '../i18n/LanguageContext';
+import { BusinessItem } from '../types';
+import { useEscapeKey } from '../hooks/useEscapeKey';
 
 interface ScanQRModalProps {
   isOpen: boolean;
   onClose: () => void;
-  currentUser: User | null;
   onSelectBusiness: (business: BusinessItem) => void;
-  onUserUpdate?: (user: User) => void;
 }
 
 export type CameraStatus = 
@@ -27,11 +25,9 @@ export type CameraStatus =
 export const ScanQRModal: React.FC<ScanQRModalProps> = ({
   isOpen,
   onClose,
-  currentUser,
   onSelectBusiness,
-  onUserUpdate,
 }) => {
-  const { t } = useTranslation();
+  useEscapeKey(onClose, isOpen);
 
   // Camera & Stream references
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -280,7 +276,9 @@ export const ScanQRModal: React.FC<ScanQRModalProps> = ({
       // Fallback: try direct business slug or ID lookup
       let slug = rawCode.trim();
       if (slug.includes('#business/')) slug = slug.split('#business/')[1];
+      else if (slug.includes('/b/')) slug = slug.split('/b/')[1];
       else if (slug.includes('/business/')) slug = slug.split('/business/')[1];
+      slug = (slug || '').split(/[?#/]/)[0];
 
       try {
         const bizData = await api.getBusinessBySlug(slug);
@@ -374,6 +372,7 @@ export const ScanQRModal: React.FC<ScanQRModalProps> = ({
       className="fixed inset-0 z-[60] flex flex-col justify-end sm:justify-center items-center bg-black/80 backdrop-blur-sm animate-fadeIn p-0 sm:p-4"
       aria-modal="true"
       role="dialog"
+      aria-label="QR Scanner"
     >
       {/* Hidden working canvas for video frame extraction */}
       <canvas ref={canvasRef} className="hidden" />

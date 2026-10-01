@@ -1,27 +1,106 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Building2, Users, DollarSign, TrendingUp, CheckCircle2, Clock, 
-  AlertTriangle, AlertCircle, Plus, Search, Filter, Download, Send, Eye, Shield, 
-  MessageSquare, Briefcase, Award, ArrowUpRight, Check, X, Phone, 
-  MapPin, RefreshCw, ChevronRight, Lock, ExternalLink, ShieldCheck, 
-  FileText, Sparkles, BarChart3, UserCheck, HelpCircle
+  Building2, DollarSign, TrendingUp, CheckCircle2, Clock,
+  AlertCircle, Plus, Search, Download, Send, Shield,
+  MessageSquare, Briefcase, Award, ArrowUpRight, Check, X, Phone,
+  RefreshCw, Lock, ShieldCheck, Copy, KeyRound,
+  FileText, BarChart3
 } from 'lucide-react';
 import { api } from '../api';
-import { 
-  User, OperatingPartnerOverview, CRMLead, CRMLeadStage, 
-  PartnerCommission, PartnerReport, SupportTicket, OperatingAuditLog,
-  OperatingPartnerKPI
+import {
+  User, OperatingPartnerOverview, CRMLead, CRMLeadStage,
+  PartnerCommission, PartnerReport, SupportTicket, OperatingAuditLog
 } from '../types';
+import { useTimedState } from '../hooks/useTimedState';
+import { useEscapeKey } from '../hooks/useEscapeKey';
+import { usePrompt } from './ui/Dialog';
+import { asArray, asNumber, asObject } from '../utils/safe';
+import { sanitizePhoneInput, phoneKeyDownGuard } from '../utils/phoneInput';
+
+const EMPTY_BIZ_FORM = {
+  name: '',
+  category_id: 'cat-barber',
+  address: 'Qarshi sh., ',
+  phone: '+998',
+  owner_name: '',
+  owner_email: '',
+  owner_phone: '+998',
+  /** Empty = backend generates a one-time temporary password. */
+  owner_password: '',
+  subscription_plan_code: 'START',
+  description: ''
+};
+
+const numbersOf = <K extends string>(raw: unknown, keys: readonly K[]): Record<K, number> => {
+  const obj = asObject(raw);
+  return keys.reduce((acc, key) => ({ ...acc, [key]: asNumber(obj[key]) }), {} as Record<K, number>);
+};
+
+const kpiOf = (raw: unknown) => {
+  const obj = asObject(raw);
+  return { ...obj, actual: asNumber(obj.actual), target: asNumber(obj.target), percentage: asNumber(obj.percentage) };
+};
+
+const COMMISSION_KEYS = [
+  'totalRevenue', 'partnerCommission', 'navbatBorRevenue', 'paidCommission',
+  'pendingCommission', 'partnerRatePercent', 'commissionsCount',
+] as const;
+
+/** Fills every nested section the dashboard reads so a partial API response never crashes rendering. */
+function normalizePartnerOverview(raw: any): OperatingPartnerOverview | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const kpis = asObject(raw.kpis);
+  const csat = asObject(kpis.customerSatisfaction);
+  const support = asObject(kpis.supportResolutionTime);
+  return {
+    ...raw,
+    ...numbersOf(raw, [
+      'todayRevenue', 'monthlyRevenue', 'partnerMonthlyCommission', 'newBusinessesThisMonth',
+      'activeBusinessesCount', 'totalBusinessesCount', 'newCustomersThisMonth', 'totalQueueCount', 'cancelledQueueCount',
+    ] as const),
+    activeTariffsBreakdown: numbersOf(raw.activeTariffsBreakdown, ['FREE', 'START', 'PRO', 'BUSINESS'] as const),
+    crmPipelineCounts: asObject(raw.crmPipelineCounts),
+    supportStats: numbersOf(raw.supportStats, ['total', 'open', 'inProgress', 'resolved'] as const),
+    commissionSummary: numbersOf(raw.commissionSummary, COMMISSION_KEYS),
+    kpis: {
+      ...kpis,
+      newBusinesses: kpiOf(kpis.newBusinesses),
+      activeBusinesses: kpiOf(kpis.activeBusinesses),
+      newPayingClients: kpiOf(kpis.newPayingClients),
+      monthlyRevenue: kpiOf(kpis.monthlyRevenue),
+      retentionRate: kpiOf(kpis.retentionRate),
+      churnRate: kpiOf(kpis.churnRate),
+      customerSatisfaction: { ...csat, actual: asNumber(csat.actual), target: asNumber(csat.target), score: String(csat.score ?? '—') },
+      supportResolutionTime: {
+        ...support,
+        actualMinutes: asNumber(support.actualMinutes),
+        targetMinutes: asNumber(support.targetMinutes),
+        text: String(support.text ?? '—'),
+      },
+    },
+    recentActivities: asArray(raw.recentActivities),
+    dailyTrend: asArray(raw.dailyTrend),
+  } as OperatingPartnerOverview;
+}
+
+function normalizeCommissions(raw: any): { commissions: PartnerCommission[]; summary: any } | null {
+  if (!raw || typeof raw !== 'object') return null;
+  return { ...raw, commissions: asArray(raw.commissions), summary: { ...asObject(raw.summary), ...numbersOf(raw.summary, COMMISSION_KEYS) } };
+}
+
+interface IssuedCredentials {
+  businessName: string;
+  email?: string;
+  password: string;
+}
 
 interface OperatingPartnerDashboardProps {
   currentUser: User;
-  onSelectBusiness?: (biz: any) => void;
   onSwitchToAdmin?: () => void;
 }
 
 export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps> = ({
   currentUser,
-  onSelectBusiness,
   onSwitchToAdmin
 }) => {
   const [activeTab, setActiveTab] = useState<
@@ -42,7 +121,6 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
   const [bizStatusFilter, setBizStatusFilter] = useState<string>('ALL');
   const [crmSearch, setCrmSearch] = useState<string>('');
   const [crmStageFilter, setCrmStageFilter] = useState<string>('ALL');
-  const [ticketStatusFilter, setTicketStatusFilter] = useState<string>('ALL');
 
   // Modals
   const [showAddBizModal, setShowAddBizModal] = useState<boolean>(false);
@@ -50,24 +128,19 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
   const [showReportModal, setShowReportModal] = useState<boolean>(false);
   const [showTicketModal, setShowTicketModal] = useState<boolean>(false);
   const [selectedLeadForConvert, setSelectedLeadForConvert] = useState<CRMLead | null>(null);
-  const [selectedBizForTariff, setSelectedBizForTariff] = useState<any | null>(null);
-  const [selectedReportDetail, setSelectedReportDetail] = useState<PartnerReport | null>(null);
-  const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
-  const [actionErrorMessage, setActionErrorMessage] = useState<string | null>(null);
+  const [actionSuccessMessage, showSuccessMessage] = useTimedState<string>(4000);
+  const [actionErrorMessage, showErrorMessage] = useTimedState<string>(5000);
+  /** One-time temporary owner password returned by the backend (never persisted). */
+  const [issuedCredentials, setIssuedCredentials] = useState<IssuedCredentials | null>(null);
+  const [credentialsCopied, setCredentialsCopied] = useState<boolean>(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+  }, []);
+  const prompt = usePrompt();
 
   // Form States
-  const [newBizForm, setNewBizForm] = useState({
-    name: '',
-    category_id: 'cat-barber',
-    address: 'Qarshi sh., ',
-    phone: '+998',
-    owner_name: '',
-    owner_email: '',
-    owner_phone: '+998',
-    owner_password: 'password123',
-    subscription_plan_code: 'START',
-    description: ''
-  });
+  const [newBizForm, setNewBizForm] = useState(EMPTY_BIZ_FORM);
 
   const [newLeadForm, setNewLeadForm] = useState({
     business_name: '',
@@ -108,37 +181,68 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
 
   const isFounder = currentUser.role === 'FOUNDER' || currentUser.role === 'ADMIN' || currentUser.email === 'rasulovjahongir074@gmail.com';
 
-  const showNotification = (msg: string) => {
-    setActionSuccessMessage(msg);
-    setTimeout(() => setActionSuccessMessage(null), 4000);
+  const showNotification = (msg: string) => showSuccessMessage(msg);
+
+  // Escape closes the top-most modal.
+  useEscapeKey(() => setShowAddBizModal(false), showAddBizModal);
+  useEscapeKey(() => setShowAddLeadModal(false), showAddLeadModal);
+  useEscapeKey(() => setShowReportModal(false), showReportModal);
+  useEscapeKey(() => setShowTicketModal(false), showTicketModal);
+  useEscapeKey(() => setSelectedLeadForConvert(null), !!selectedLeadForConvert);
+
+  const handleCopyCredentials = async () => {
+    if (!issuedCredentials) return;
+    const text = issuedCredentials.email
+      ? `Login: ${issuedCredentials.email}\nParol: ${issuedCredentials.password}`
+      : issuedCredentials.password;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCredentialsCopied(true);
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCredentialsCopied(false), 2000);
+    } catch {
+      showErrorMessage('Nusxalab bo‘lmadi — parolni qo‘lda ko‘chirib oling');
+    }
   };
 
-  const showErrorMessage = (msg: string) => {
-    setActionErrorMessage(msg);
-    setTimeout(() => setActionErrorMessage(null), 5000);
+  /** Shows the backend-generated temporary password (if any) exactly once. */
+  const rememberIssuedCredentials = (res: any, fallbackName: string, fallbackEmail?: string) => {
+    const password: string | undefined = res?.owner_temp_password;
+    if (!password) return;
+    setCredentialsCopied(false);
+    setIssuedCredentials({
+      businessName: res?.business?.name || fallbackName,
+      email: res?.owner?.email || res?.owner_email || fallbackEmail || undefined,
+      password,
+    });
   };
 
+  // Every section loads independently so one failing endpoint does not blank the dashboard.
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [ov, bizList, leadsList, comms, repList, tList, aList] = await Promise.all([
-        api.getPartnerOverview(),
-        api.getPartnerBusinesses(),
-        api.getCRMLeads(),
-        api.getPartnerCommissions(),
-        api.getPartnerReports(),
-        api.getPartnerSupportTickets(),
-        api.getPartnerAuditLogs()
-      ]);
-      setOverview(ov);
-      setBusinesses(bizList);
-      setLeads(leadsList);
-      setCommissionsData(comms);
-      setReports(repList);
-      setTickets(tList);
-      setAuditLogs(aList);
-    } catch (err) {
-      console.error('Error loading partner dashboard data:', err);
+      const sections: Array<{ label: string; run: () => Promise<any>; apply: (value: any) => void }> = [
+        { label: 'Umumiy ko‘rsatkichlar', run: () => api.getPartnerOverview(), apply: (v) => setOverview(normalizePartnerOverview(v)) },
+        { label: 'Bizneslar', run: () => api.getPartnerBusinesses(), apply: (v) => setBusinesses(asArray(v)) },
+        { label: 'CRM leadlar', run: () => api.getCRMLeads(), apply: (v) => setLeads(asArray(v)) },
+        { label: 'Komissiyalar', run: () => api.getPartnerCommissions(), apply: (v) => setCommissionsData(normalizeCommissions(v)) },
+        { label: 'Hisobotlar', run: () => api.getPartnerReports(), apply: (v) => setReports(asArray(v)) },
+        { label: 'Support', run: () => api.getPartnerSupportTickets(), apply: (v) => setTickets(asArray(v)) },
+        { label: 'Audit', run: () => api.getPartnerAuditLogs(), apply: (v) => setAuditLogs(asArray(v)) },
+      ];
+      const results = await Promise.allSettled(sections.map((section) => section.run()));
+      const failed: string[] = [];
+      results.forEach((result, i) => {
+        if (result.status === 'fulfilled') {
+          sections[i].apply(result.value);
+        } else {
+          failed.push(sections[i].label);
+          console.error(`Hamkor paneli: "${sections[i].label}" yuklanmadi`, result.reason);
+        }
+      });
+      if (failed.length > 0) {
+        showErrorMessage(`Ba’zi bo‘limlar yuklanmadi: ${failed.join(', ')}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -150,22 +254,19 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
 
   const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
+    const { owner_password, ...rest } = newBizForm;
+    const password = owner_password.trim();
+    if (password && password.length < 8) {
+      showErrorMessage('Parol kamida 8 belgidan iborat bo‘lsin yoki bo‘sh qoldiring (avtomatik yaratiladi)');
+      return;
+    }
     try {
-      await api.createPartnerBusiness(newBizForm);
+      // owner_password is only sent when explicitly set; otherwise the backend generates one.
+      const res = await api.createPartnerBusiness(password ? { ...rest, owner_password: password } : rest);
       showNotification(`"${newBizForm.name}" muvaffaqiyatli ro‘yxatdan o‘tkazildi!`);
+      rememberIssuedCredentials(res, newBizForm.name, newBizForm.owner_email);
       setShowAddBizModal(false);
-      setNewBizForm({
-        name: '',
-        category_id: 'cat-barber',
-        address: 'Qarshi sh., ',
-        phone: '+998',
-        owner_name: '',
-        owner_email: '',
-        owner_phone: '+998',
-        owner_password: 'password123',
-        subscription_plan_code: 'START',
-        description: ''
-      });
+      setNewBizForm(EMPTY_BIZ_FORM);
       loadAllData();
     } catch (err: any) {
       showErrorMessage(err.message || 'Xatolik yuz berdi');
@@ -206,20 +307,12 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
     }
   };
 
-  const handleAdvanceLeadStage = async (id: string, stage: CRMLeadStage) => {
-    try {
-      await api.updateCRMLeadStage(id, stage);
-      showNotification(`Lead bosqichi "${stage}" ga yangilandi!`);
-      loadAllData();
-    } catch (err: any) {
-      showErrorMessage(err.message || 'Bosqichni o‘zgartirib bo‘lmadi');
-    }
-  };
-
   const handleConvertLead = async (leadId: string, planCode: string) => {
     try {
-      const res = await api.convertCRMLeadToBusiness(leadId, { plan_code: planCode, owner_password: 'password123' });
-      showNotification(res.message || 'Lead muvaffaqiyatli biznesga aylantirildi!');
+      const lead = leads.find((l) => l.id === leadId);
+      const res = await api.convertCRMLeadToBusiness(leadId, { plan_code: planCode });
+      showNotification(res?.message || 'Lead muvaffaqiyatli biznesga aylantirildi!');
+      rememberIssuedCredentials(res, lead?.business_name || 'Yangi biznes');
       setSelectedLeadForConvert(null);
       loadAllData();
     } catch (err: any) {
@@ -245,8 +338,8 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
         next_week_plan: '1. Yangi 3 ta muassasani ulash.\n2. Telegram bot eslatmalarini keng targ‘ib qilish.'
       });
       setShowReportModal(true);
-    } catch (err) {
-      showErrorMessage('Qoralama tuzishda xatolik');
+    } catch (err: any) {
+      showErrorMessage(err?.message || 'Qoralama tuzishda xatolik');
     }
   };
 
@@ -283,8 +376,15 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
   };
 
   const handleSolveTicket = async (id: string) => {
-    const notes = prompt('Hal qilinish izohi (Resolution notes):', 'Muammo muvaffaqiyatli hal qilindi.');
-    if (!notes) return;
+    const notes = await prompt({
+      title: 'Murojaatni yopish',
+      message: 'Hal qilinish izohi (Resolution notes):',
+      defaultValue: 'Muammo muvaffaqiyatli hal qilindi.',
+      multiline: true,
+      required: true,
+      confirmText: 'Hal qilindi',
+    });
+    if (!notes?.trim()) return;
     try {
       await api.updateSupportTicketStatus(id, { status: 'RESOLVED', resolution_notes: notes });
       showNotification('Murojaat muvaffaqiyatli hal qilindi!');
@@ -296,8 +396,14 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
 
   const handleSettlePayout = async (commId: string) => {
     if (!isFounder) return;
-    const notes = prompt('To‘lov izohi / kvitansiya raqami:', 'Founder tomonidan bank kartasiga o‘tkazildi.');
-    if (!notes) return;
+    const notes = await prompt({
+      title: 'Komissiya to‘lovini tasdiqlash',
+      message: 'To‘lov izohi / kvitansiya raqami:',
+      defaultValue: 'Founder tomonidan bank kartasiga o‘tkazildi.',
+      required: true,
+      confirmText: 'To‘lovni tasdiqlash',
+    });
+    if (!notes?.trim()) return;
     try {
       await api.settleCommissionPayout(commId, notes);
       showNotification('Komissiya to‘lovi tasdiqlandi!');
@@ -316,7 +422,7 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
     const rows = commissionsData.commissions.map(c => [
       c.id,
       c.created_at?.slice(0, 10) || '',
-      `"${c.business_name.replace(/"/g, '""')}"`,
+      `"${(c.business_name || '').replace(/"/g, '""')}"`,
       c.plan_code,
       c.total_amount_uzs,
       c.partner_share_uzs,
@@ -337,7 +443,7 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
 
   // Filtered views
   const filteredBusinesses = businesses.filter(b => {
-    const matchesSearch = b.name.toLowerCase().includes(bizSearch.toLowerCase()) || 
+    const matchesSearch = (b.name || '').toLowerCase().includes(bizSearch.toLowerCase()) || 
                           b.owner_name?.toLowerCase().includes(bizSearch.toLowerCase()) ||
                           b.phone?.includes(bizSearch);
     const matchesStatus = bizStatusFilter === 'ALL' || b.status === bizStatusFilter;
@@ -345,15 +451,12 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
   });
 
   const filteredLeads = leads.filter(l => {
-    const matchesSearch = l.business_name.toLowerCase().includes(crmSearch.toLowerCase()) ||
-                          l.owner_name.toLowerCase().includes(crmSearch.toLowerCase()) ||
-                          l.phone.includes(crmSearch);
+    const q = crmSearch.toLowerCase();
+    const matchesSearch = (l.business_name || '').toLowerCase().includes(q) ||
+                          (l.owner_name || '').toLowerCase().includes(q) ||
+                          (l.phone || '').includes(crmSearch);
     const matchesStage = crmStageFilter === 'ALL' || l.status === crmStageFilter;
     return matchesSearch && matchesStage;
-  });
-
-  const filteredTickets = tickets.filter(t => {
-    return ticketStatusFilter === 'ALL' || t.status === ticketStatusFilter;
   });
 
   return (
@@ -437,9 +540,52 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
           )}
 
           {actionErrorMessage && (
-            <div className="mt-3 p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
+            <div className="mt-3 p-2.5 bg-rose-500/20 border border-rose-500/40 rounded-xl text-rose-300 text-xs flex items-center gap-2 animate-in fade-in" role="alert">
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{actionErrorMessage}</span>
+            </div>
+          )}
+
+          {/* One-time temporary owner password (generated by the backend) */}
+          {issuedCredentials && (
+            <div className="mt-3 p-3 bg-amber-500/15 border border-amber-400/50 rounded-xl text-xs text-amber-100 animate-in fade-in" role="status">
+              <div className="flex items-start gap-2.5">
+                <KeyRound className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <p className="font-bold text-amber-200">
+                    “{issuedCredentials.businessName}” egasi uchun vaqtinchalik parol yaratildi
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {issuedCredentials.email && (
+                      <span className="text-amber-100/90">
+                        Login: <span className="font-mono text-white">{issuedCredentials.email}</span>
+                      </span>
+                    )}
+                    <span className="text-amber-100/90">
+                      Parol: <span className="font-mono font-black text-white bg-slate-900/70 px-2 py-0.5 rounded-md select-all">{issuedCredentials.password}</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleCopyCredentials}
+                      className="inline-flex items-center gap-1 px-2 py-1 bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold rounded-lg transition cursor-pointer"
+                    >
+                      {credentialsCopied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      <span>{credentialsCopied ? 'Nusxalandi' : 'Nusxalash'}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-amber-200/80">
+                    Diqqat: bu parol faqat bir marta ko‘rsatiladi. Uni hozir nusxalab, biznes egasiga xavfsiz yo‘l bilan yuboring — egasi birinchi kirishda parolni almashtirishi kerak.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Yopish"
+                  onClick={() => setIssuedCredentials(null)}
+                  className="p-1 text-amber-200/70 hover:text-white rounded-lg cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           )}
 
@@ -835,12 +981,6 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                           </div>
                         </td>
                         <td className="py-3 px-4 text-right space-x-1.5">
-                          <button
-                            onClick={() => setSelectedBizForTariff(biz)}
-                            className="px-2 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 rounded-lg text-[11px] font-bold transition cursor-pointer"
-                          >
-                            Tarif
-                          </button>
                           {biz.status === 'APPROVED' ? (
                             <button
                               onClick={() => handleUpdateBizStatus(biz.id, 'SUSPENDED')}
@@ -944,7 +1084,7 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
 
                           <div className="mt-2 pt-2 border-t border-slate-800 flex items-center justify-between text-[10px]">
                             <span className="text-slate-400">{lead.business_type}</span>
-                            <span className="font-bold text-emerald-400">{lead.deal_value_uzs.toLocaleString()} so‘m</span>
+                            <span className="font-bold text-emerald-400">{Number(lead.deal_value_uzs ?? 0).toLocaleString()} so‘m</span>
                           </div>
 
                           {/* Action Advance or Convert */}
@@ -1047,10 +1187,10 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                           </span>
                         </td>
                         <td className="py-3 px-4 font-semibold text-white">
-                          {c.total_amount_uzs.toLocaleString()} so‘m
+                          {Number(c.total_amount_uzs ?? 0).toLocaleString()} so‘m
                         </td>
                         <td className="py-3 px-4 font-black text-emerald-400">
-                          {c.partner_share_uzs.toLocaleString()} so‘m
+                          {Number(c.partner_share_uzs ?? 0).toLocaleString()} so‘m
                         </td>
                         <td className="py-3 px-4">
                           <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
@@ -1168,11 +1308,11 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                     </div>
                     <div>
                       <div className="text-[10px] text-slate-400">Tushum</div>
-                      <div className="font-black text-white">{r.total_revenue_uzs.toLocaleString()} so‘m</div>
+                      <div className="font-black text-white">{Number(r.total_revenue_uzs ?? 0).toLocaleString()} so‘m</div>
                     </div>
                     <div>
                       <div className="text-[10px] text-slate-400">Komissiya (30%)</div>
-                      <div className="font-black text-emerald-400">{r.partner_commission_uzs.toLocaleString()} so‘m</div>
+                      <div className="font-black text-emerald-400">{Number(r.partner_commission_uzs ?? 0).toLocaleString()} so‘m</div>
                     </div>
                   </div>
 
@@ -1193,11 +1333,21 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                   {isFounder && r.status !== 'REVIEWED' && (
                     <button
                       onClick={async () => {
-                        const feedback = prompt('Founder fikri va tasdiq:', 'Hisobot qabul qilindi, faollikni davom ettiring!');
-                        if (feedback) {
-                          await api.reviewPartnerReport(r.id, { founder_feedback: feedback });
+                        const feedback = await prompt({
+                          title: 'Hisobotni tasdiqlash',
+                          message: 'Founder fikri va tasdiq:',
+                          defaultValue: 'Hisobot qabul qilindi, faollikni davom ettiring!',
+                          multiline: true,
+                          required: true,
+                          confirmText: 'Tasdiqlash',
+                        });
+                        if (!feedback?.trim()) return;
+                        try {
+                          await api.reviewPartnerReport(r.id, { founder_feedback: feedback.trim() });
                           showNotification('Hisobot tasdiqlandi!');
                           loadAllData();
+                        } catch (err: any) {
+                          showErrorMessage(err?.message || 'Hisobotni tasdiqlashda xatolik');
                         }
                       }}
                       className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs transition cursor-pointer"
@@ -1229,7 +1379,7 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
             </div>
 
             <div className="space-y-3">
-              {filteredTickets.map(t => (
+              {tickets.map(t => (
                 <div key={t.id} className="p-4 bg-slate-800/80 border border-slate-700 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
@@ -1317,10 +1467,10 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
       {/* MODAL: ADD BUSINESS */}
       {showAddBizModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full text-xs text-slate-200 max-h-[90vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full text-xs text-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
               <h3 className="text-sm font-black text-white">Yangi Biznes Qo‘shish (Qarshi)</h3>
-              <button onClick={() => setShowAddBizModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button aria-label="Yopish" onClick={() => setShowAddBizModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1385,7 +1535,8 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                     type="text"
                     required
                     value={newBizForm.phone}
-                    onChange={e => setNewBizForm({ ...newBizForm, phone: e.target.value })}
+                    onChange={e => setNewBizForm({ ...newBizForm, phone: sanitizePhoneInput(e.target.value) })}
+                    onKeyDown={phoneKeyDownGuard}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                   />
                 </div>
@@ -1415,13 +1566,16 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                   />
                 </div>
                 <div>
-                  <label className="block text-slate-400 font-bold mb-1">Boshlang‘ich Parol</label>
+                  <label htmlFor="partner-owner-password" className="block text-slate-400 font-bold mb-1">Boshlang‘ich Parol</label>
                   <input
+                    id="partner-owner-password"
                     type="text"
-                    required
+                    autoComplete="new-password"
+                    minLength={8}
                     value={newBizForm.owner_password}
                     onChange={e => setNewBizForm({ ...newBizForm, owner_password: e.target.value })}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono"
+                    placeholder="Bo‘sh qoldirilsa avtomatik yaratiladi"
+                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono placeholder:font-sans placeholder:text-slate-500"
                   />
                 </div>
               </div>
@@ -1442,10 +1596,10 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
       {/* MODAL: ADD LEAD (CRM) */}
       {showAddLeadModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full text-xs text-slate-200">
+          <div role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full text-xs text-slate-200">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
               <h3 className="text-sm font-black text-white">Yangi Lead Qo‘shish (CRM)</h3>
-              <button onClick={() => setShowAddLeadModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button aria-label="Yopish" onClick={() => setShowAddLeadModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1479,7 +1633,8 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                     type="text"
                     required
                     value={newLeadForm.phone}
-                    onChange={e => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
+                    onChange={e => setNewLeadForm({ ...newLeadForm, phone: sanitizePhoneInput(e.target.value) })}
+                    onKeyDown={phoneKeyDownGuard}
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-white"
                   />
                 </div>
@@ -1569,7 +1724,7 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
       {/* MODAL: CONVERT LEAD TO BUSINESS */}
       {selectedLeadForConvert && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-emerald-500/50 rounded-2xl p-6 max-w-sm w-full text-xs text-slate-200">
+          <div role="dialog" aria-modal="true" className="bg-slate-900 border border-emerald-500/50 rounded-2xl p-6 max-w-sm w-full text-xs text-slate-200">
             <h3 className="text-sm font-black text-white mb-2">Leadni NavbatBor Biznesga Aylantirish</h3>
             <p className="text-slate-400 mb-4">
               <strong className="text-white">{selectedLeadForConvert.business_name}</strong> uchun avtomatik biznes profili va egasi hisobi yaratiladi.
@@ -1614,10 +1769,10 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
       {/* MODAL: SUBMIT REPORT */}
       {showReportModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full text-xs text-slate-200 max-h-[90vh] overflow-y-auto">
+          <div role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-lg w-full text-xs text-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
               <h3 className="text-sm font-black text-white">Founder’ga Hisobot Yuborish</h3>
-              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button aria-label="Yopish" onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1640,11 +1795,11 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
                 </div>
                 <div>
                   <span className="text-[10px] text-slate-400 block">Jami Tushum</span>
-                  <strong className="text-white text-sm">{reportForm.total_revenue_uzs.toLocaleString()} so‘m</strong>
+                  <strong className="text-white text-sm">{Number(reportForm.total_revenue_uzs ?? 0).toLocaleString()} so‘m</strong>
                 </div>
                 <div>
                   <span className="text-[10px] text-emerald-400 block">Hamkor Ulushi</span>
-                  <strong className="text-emerald-400 text-sm">{reportForm.partner_commission_uzs.toLocaleString()} so‘m</strong>
+                  <strong className="text-emerald-400 text-sm">{Number(reportForm.partner_commission_uzs ?? 0).toLocaleString()} so‘m</strong>
                 </div>
               </div>
 
@@ -1698,10 +1853,10 @@ export const OperatingPartnerDashboard: React.FC<OperatingPartnerDashboardProps>
       {/* MODAL: ADD TICKET */}
       {showTicketModal && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full text-xs text-slate-200">
+          <div role="dialog" aria-modal="true" className="bg-slate-900 border border-slate-700 rounded-2xl p-6 max-w-md w-full text-xs text-slate-200">
             <div className="flex justify-between items-center mb-4 pb-2 border-b border-slate-800">
               <h3 className="text-sm font-black text-white">Yangi Support Murojaati</h3>
-              <button onClick={() => setShowTicketModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button aria-label="Yopish" onClick={() => setShowTicketModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>

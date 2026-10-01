@@ -13,6 +13,10 @@ class BookingStatus(models.TextChoices):
     NO_SHOW = 'NO_SHOW', 'Kelgani yo‘q'
 
 
+# Statuses that occupy a staff member's time slot.
+ACTIVE_BOOKING_STATUSES = (BookingStatus.PENDING, BookingStatus.CONFIRMED, BookingStatus.IN_PROGRESS)
+
+
 class Booking(models.Model):
     id = models.CharField(primary_key=True, max_length=64, editable=False)
     booking_number = models.CharField(max_length=32, unique=True, db_index=True)
@@ -33,11 +37,27 @@ class Booking(models.Model):
         db_index=True
     )
     cancel_reason = models.TextField(blank=True)
+    reminder_sent = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'bookings'
         ordering = ['-booking_date', '-start_time']
+        constraints = [
+            # Last line of defence against double booking (overlaps are checked in the service layer).
+            models.UniqueConstraint(
+                fields=['staff', 'booking_date', 'start_time'],
+                condition=models.Q(status__in=['PENDING', 'CONFIRMED', 'IN_PROGRESS']),
+                name='uniq_active_booking_per_staff_slot',
+            ),
+            # staff is NULL for businesses with no staff member assigned — SQL NULL != NULL means the
+            # constraint above never applies to those rows, so guard the business/slot pair separately.
+            models.UniqueConstraint(
+                fields=['business', 'booking_date', 'start_time'],
+                condition=models.Q(staff__isnull=True, status__in=['PENDING', 'CONFIRMED', 'IN_PROGRESS']),
+                name='uniq_active_booking_per_business_slot_no_staff',
+            ),
+        ]
 
     def __str__(self):
         return f"#{self.booking_number} - {self.customer_name} ({self.booking_date} {self.start_time})"
