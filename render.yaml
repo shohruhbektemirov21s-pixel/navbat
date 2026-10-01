@@ -40,16 +40,18 @@ services:
       - key: TELEGRAM_WEBHOOK_SECRET
         sync: false
 
-  # --- Frontend: Vite/React static build, proxies /api to the backend service ---
+  # --- Frontend: Vite/React static build. Calls the backend via an absolute URL
+  # (VITE_API_BASE_URL, baked in at build time) since Render static sites can't
+  # reverse-proxy to a service on a different origin — CORS on the backend covers it.
   - name: navbatbor-frontend
     type: web
     runtime: static
     buildCommand: "npm install && npm run build"
     staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: https://navbatbor-backend.onrender.com
     routes:
-      - type: rewrite
-        source: /api/(.*)
-        destination: https://navbatbor-backend.onrender.com/api/$1
       - type: rewrite
         source: /(.*)
         destination: /index.html

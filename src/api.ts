@@ -15,6 +15,9 @@ import {
 const TOKEN_KEY = 'navbatbor_token';
 const REFRESH_KEY = 'navbatbor_refresh';
 
+/** Absolute backend origin in production (frontend and backend are separate Render services). Empty in local dev — Vite proxies `/api` to Django. */
+const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+
 /** Fired on `window` when the session is gone (refresh failed / revoked). */
 export const UNAUTHORIZED_EVENT = 'navbatbor:unauthorized';
 
@@ -173,7 +176,7 @@ function refreshAccessToken(): Promise<RefreshOutcome> {
 
   refreshInFlight = (async (): Promise<RefreshOutcome> => {
     try {
-      const response = await fetch('/api/auth/refresh', {
+      const response = await fetch(`${API_BASE}/api/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh }),
@@ -223,7 +226,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isRetry =
 
   let response: Response;
   try {
-    response = await fetch(endpoint, { ...options, headers });
+    response = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
   } catch (err) {
     // Let aborts propagate untouched so callers can ignore them.
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
