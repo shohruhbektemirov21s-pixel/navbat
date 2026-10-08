@@ -6,11 +6,10 @@ Supported flows:
 * `/start link_<token>` -> links the NavbatBor account (TelegramLinkToken) to this chat.
 * `/start queue_<entry>` -> subscribes this chat to a queue ticket's notifications.
 * Inline buttons `confirm_next_<id>` / `cancel_next_<id>` -> pending "call next customer" actions.
-* `/start bizapp` / `/start bizapp_u<user_id>` -> a step-by-step conversation that creates a
-  `BusinessApplication` (name, category, city, district, address, phone, hours, description,
-  photos), ending with an inline `[Yuborish]` button that sends it to every FOUNDER/ADMIN for
-  approval (`bizapp_approve:<id>` / `bizapp_reject:<id>` inline buttons on their side).
-* `/arizalar` (admin-only) -> lists PENDING business applications with the same approve/reject buttons.
+* `/biznes` / `/start bizapp` / `/start bizapp_u<user_id>` -> business application,
+  including region -> paginated district/city -> address. Submission is routed to
+  the private owner bot when configured; legacy public review is then disabled.
+* `/arizam` -> application status, resuming an unfinished draft.
 """
 import json
 import logging
@@ -25,6 +24,7 @@ from apps.authentication.models import TelegramAuthSession, TelegramLinkToken, U
 from apps.authentication.permissions import ADMIN_ROLES
 from apps.authentication.telegram import TelegramAuthError, get_or_create_telegram_user
 from apps.marketplace.models import BusinessApplicationStep as _Step
+from apps.marketplace.locations import city_for_district, get_district, get_region, regions
 
 from .services import TELEGRAM_API, esc, send_telegram_message, telegram_api
 
@@ -33,6 +33,7 @@ logger = logging.getLogger('apps.notifications.bot')
 CODE_RE = re.compile(r'^\d{6}$')
 PHONE_RE = re.compile(r'^\+?[0-9 ()-]{7,20}$')
 MAX_APPLICATION_PHOTOS = 6
+DISTRICT_PAGE_SIZE = 8
 MAX_PHOTO_DOWNLOAD_BYTES = 10 * 1024 * 1024
 
 # Uzbek (Latin) weekday names -> JS-style day_of_week (0=Yakshanba/Sunday ... 6=Shanba/Saturday).
@@ -71,6 +72,11 @@ def _handle_message(message):
     chat_id = str(chat['id'])
     text = (message.get('text') or '').strip()
 
+    if text in ('/arizam', '/status'):
+        return _bizapp_status(chat_id)
+    if text == '/biznes':
+        return _bizapp_start(chat_id, sender, '')
+
     if text.startswith('/start auth_'):
         return _prompt_auth(chat_id, TelegramAuthSession.objects.filter(session_id=text[len('/start auth_'):].strip()).first())
     if CODE_RE.match(text):
@@ -94,6 +100,10 @@ def _handle_message(message):
 
     draft = _draft_application_for_chat(chat_id)
     if draft:
+        if text in ('/start', '/help', '/yordam'):
+            send_telegram_message(chat_id, '📝 Arizangiz saqlangan. Quyidagi qadamdan davom eting.\n'
+                                  '/arizam — holat\n/bekor_qilish — bekor qilish')
+            return _bizapp_prompt_step(draft)
         photos = message.get('photo')
         if draft.step == _Step.ASK_PHOTOS and photos:
             return _bizapp_receive_photo(draft, photos)
@@ -101,11 +111,19 @@ def _handle_message(message):
 
     if text.startswith('/start') or text in ('/help', '/yordam'):
         return send_telegram_message(chat_id, (
-            '👋 <b>NavbatBor botiga xush kelibsiz!</b>\n\n'
-            'Bu bot orqali siz:\n• saytga Telegram orqali kirasiz\n• navbatingiz kelganda xabar olasiz\n'
-            '• bron eslatmalarini olasiz\n• biznesingizni NavbatBor katalogiga qo‘shasiz (/start bizapp).\n\n'
-            'Saytdagi «Telegram orqali kirish» tugmasini bosing yoki /start bizapp yuboring.'
-        ), {'inline_keyboard': [[{'text': 'Biznesni ro‘yxatdan o‘tkazish', 'callback_data': 'bizapp_begin'}]]})
+            '🏢 <b>NavbatBor · Biznesni ro‘yxatdan o‘tkazish</b>\n\n'
+            'Biznesingizni mijozlar topadigan katalogga qo‘shing.\n'
+            '1. Biznes ma’lumotlarini kiriting.\n'
+            '2. Viloyat va tuman/shaharni tanlang.\n'
+            '3. Rasmlarni yuborib, arizani tekshiruvga jo‘nating.\n\n'
+            'Tasdiqlangach, biznesingiz saytda ko‘rinadi.\n'
+            'Ro‘yxatdan o‘tish bepul.\n\n'
+            '/arizam — ariza holati\n/yordam — yordam\n'
+            'Bu bot saytga kirish va navbat eslatmalarini ham qo‘llab-quvvatlaydi.'
+        ), {'inline_keyboard': [
+            [{'text': '➕ Biznesni qo‘shish', 'callback_data': 'bizapp_begin'}],
+            [{'text': '📋 Arizam holati', 'callback_data': 'bizapp_status'}],
+        ]})
     return None
 
 
@@ -184,7 +202,8 @@ def _edit(callback, text):
     # The message we are editing may be a photo (sendPhoto -> has a caption, no editable text)
     # or a plain text message; try the matching edit method and fall back silently otherwise.
     method = 'editMessageCaption' if msg.get('caption') is not None or msg.get('photo') else 'editMessageText'
-    payload = {'chat_id': msg['chat']['id'], 'message_id': msg['message_id'], 'parse_mode': 'HTML'}
+    payload = {'chat_id': msg['chat']['id'], 'message_id': msg['message_id'], 'parse_mode': 'HTML',
+               'reply_markup': {'inline_keyboard': []}}
     payload['caption' if method == 'editMessageCaption' else 'text'] = text
     return telegram_api(method, payload)
 
@@ -194,6 +213,13 @@ def _handle_callback(callback):
     sender = callback.get('from') or {}
     if not sender.get('id'):
         return
+    if data.startswith('bizapp_'):
+        chat = (callback.get('message') or {}).get('chat') or {}
+        if chat.get('type') != 'private' or str(chat.get('id')) != str(sender['id']):
+            return _answer(callback, 'Botga shaxsiy xabar yozing.')
+    if data == 'bizapp_status':
+        _answer(callback, 'Ariza holati')
+        return _bizapp_status(str(sender['id']))
     if data == 'bizapp_begin':
         chat = (callback.get('message') or {}).get('chat') or {}
         if chat.get('type') != 'private' or str(chat.get('id')) != str(sender['id']):
@@ -207,7 +233,15 @@ def _handle_callback(callback):
     if data.startswith('bizapp_cat:'):
         return _bizapp_category_chosen(callback, sender, data[len('bizapp_cat:'):])
     if data.startswith('bizapp_city:'):
-        return _bizapp_city_chosen(callback, sender, data[len('bizapp_city:'):])
+        _answer(callback, 'Hudud tanlash yangilandi. Viloyatni qaytadan tanlang.')
+        application = _draft_application_for_chat(str(sender['id']))
+        return _bizapp_prompt_step(application) if application else None
+    if data.startswith('bizapp_region:'):
+        return _bizapp_region_chosen(callback, sender, data.partition(':')[2])
+    if data.startswith('bizapp_district:') or data.startswith('bizapp_dpage:'):
+        return _bizapp_district_callback(callback, sender, data)
+    if data == 'bizapp_regions':
+        return _bizapp_regions_back(callback, sender)
     if data == 'bizapp_submit':
         return _bizapp_submit(callback, sender)
     if data == 'bizapp_restart':
@@ -343,6 +377,26 @@ def _bizapp_cancel(chat_id):
     return send_telegram_message(chat_id, '🗑 Ariza bekor qilindi. Qaytadan boshlash uchun /start bizapp yuboring.')
 
 
+def _bizapp_status(chat_id):
+    from apps.marketplace.models import BusinessApplication, BusinessApplicationStatus
+
+    application = BusinessApplication.objects.filter(telegram_chat_id=chat_id).order_by('-created_at').first()
+    if not application:
+        return send_telegram_message(chat_id, 'Hali ariza yubormagansiz. Biznesingizni qo‘shish uchun /biznes ni bosing.')
+    labels = {
+        BusinessApplicationStatus.DRAFT: '📝 To‘ldirish davom etmoqda',
+        BusinessApplicationStatus.PENDING: '⏳ Sayt egasi ko‘rib chiqmoqda',
+        BusinessApplicationStatus.APPROVED: '✅ Tasdiqlangan — biznesingiz katalogda',
+        BusinessApplicationStatus.REJECTED: '❌ Rad etilgan',
+    }
+    text = f"<b>{esc(application.name or 'Yangi biznes')}</b>\n{labels[application.status]}"
+    if application.reject_reason:
+        text += f'\nSabab: {esc(application.reject_reason[:1000])}'
+    send_telegram_message(chat_id, text)
+    if application.status == BusinessApplicationStatus.DRAFT:
+        return _bizapp_prompt_step(application)
+
+
 # ---------------------------------------------------------------------------
 # Business application: step prompts
 # ---------------------------------------------------------------------------
@@ -351,7 +405,7 @@ def _bizapp_prompt_step(application):
     step = application.step
 
     if step == _Step.ASK_NAME:
-        return send_telegram_message(chat_id, 'Biznesingiz nomini yozing:')
+        return send_telegram_message(chat_id, '<b>1/9 · Biznes nomi</b>\n\nBiznesingiz nomini yozing.\nMasalan: Nasaf klinikasi\n\n/bekor_qilish — arizani bekor qilish')
 
     if step == _Step.ASK_CATEGORY:
         from apps.marketplace.models import Category
@@ -359,37 +413,44 @@ def _bizapp_prompt_step(application):
         if not categories:
             return send_telegram_message(chat_id, '⚠️ Hozircha kategoriyalar mavjud emas. Keyinroq urinib ko‘ring.')
         rows = [[{'text': c.name, 'callback_data': f'bizapp_cat:{i}'}] for i, c in enumerate(categories)]
-        return send_telegram_message(chat_id, 'Qaysi sohada faoliyat yuritasiz?', {'inline_keyboard': rows})
+        return send_telegram_message(chat_id, '<b>2/9 · Faoliyat turi</b>\n\nQaysi sohada faoliyat yuritasiz?', {'inline_keyboard': rows})
 
     if step == _Step.ASK_CITY:
-        from apps.marketplace.models import City
-        cities = list(City.objects.order_by('name'))
-        if not cities:
-            return send_telegram_message(chat_id, '⚠️ Hozircha shaharlar mavjud emas. Keyinroq urinib ko‘ring.')
-        rows = [[{'text': c.name, 'callback_data': f'bizapp_city:{i}'}] for i, c in enumerate(cities)]
-        return send_telegram_message(chat_id, 'Qaysi shahar/tumanda joylashgansiz?', {'inline_keyboard': rows})
+        rows = [[{'text': region['name'], 'callback_data': f"bizapp_region:{region['id']}"}] for region in regions()]
+        return send_telegram_message(chat_id, '<b>3/9 · Viloyat</b>\n\nBiznesingiz joylashgan hududni tanlang:', {'inline_keyboard': rows})
 
     if step == _Step.ASK_DISTRICT:
-        return send_telegram_message(chat_id, 'Tuman yoki hududingizni yozing (yo‘q bo‘lsa /skip):')
+        region = get_region(application.region or (application.city.region if application.city_id else ''))
+        if not region:
+            application.step = _Step.ASK_CITY
+            application.save(update_fields=['step', 'updated_at'])
+            return _bizapp_prompt_step(application)
+        if not application.region:
+            application.region = region['name']
+            application.save(update_fields=['region', 'updated_at'])
+        return _bizapp_prompt_districts(application, region)
 
     if step == _Step.ASK_ADDRESS:
-        return send_telegram_message(chat_id, 'To‘liq manzilingizni yozing:')
+        return send_telegram_message(chat_id, '<b>5/9 · Aniq manzil</b>\n\n'
+                                     f"📍 {esc(application.region)}, {esc(application.district)}\n\n"
+                                     'Ko‘cha, uy raqami va mo‘ljalni yozing:')
 
     if step == _Step.ASK_PHONE:
-        return send_telegram_message(chat_id, 'Telefon raqamingizni yozing (masalan: +998901234567):')
+        return send_telegram_message(chat_id, '<b>6/9 · Bog‘lanish</b>\n\nTelefon raqamingizni yozing.\nMasalan: +998901234567')
 
     if step == _Step.ASK_HOURS:
         return send_telegram_message(chat_id, (
-            'Necha kundan nechigacha va soat nechchidan nechigacha ishlaysiz?\n' + HOURS_EXAMPLE
+            '<b>7/9 · Ish vaqti</b>\n\nQaysi kunlar va soatlarda ishlaysiz?\n' + HOURS_EXAMPLE
         ))
 
     if step == _Step.ASK_DESCRIPTION:
-        return send_telegram_message(chat_id, 'Biznesingiz haqida qisqacha ma’lumot yozing (/skip — o‘tkazib yuborish):')
+        return send_telegram_message(chat_id, '<b>8/9 · Biznes haqida</b>\n\nQanday xizmatlar ko‘rsatasiz? Qisqacha yozing.\n/skip — o‘tkazib yuborish')
 
     if step == _Step.ASK_PHOTOS:
         count = application.photos.count()
         return send_telegram_message(chat_id, (
-            f'Bir yoki bir nechta rasm yuboring (do‘kon old tomoni, ichki ko‘rinish va h.k.) — {count}/{MAX_APPLICATION_PHOTOS}.\n'
+            f'<b>9/9 · Biznes rasmlari</b>\n\nYuklangan: {count}/{MAX_APPLICATION_PHOTOS}\n'
+            'Tashqi va ichki ko‘rinishdan kamida bitta rasm yuboring.\n'
             'Tugatgach /done deb yozing.'
         ))
 
@@ -418,10 +479,6 @@ def _bizapp_handle_text(application, text, message):
         return send_telegram_message(chat_id, 'Iltimos, yuqoridagi tugmalardan birini tanlang.')
 
     if step == _Step.ASK_DISTRICT:
-        if text != '/skip':
-            application.district = text[:128]
-        application.step = _Step.ASK_ADDRESS
-        application.save(update_fields=['district', 'step', 'updated_at'])
         return _bizapp_prompt_step(application)
 
     if step == _Step.ASK_ADDRESS:
@@ -524,7 +581,7 @@ def _bizapp_handle_hours_text(application, text):
 
 
 # ---------------------------------------------------------------------------
-# Business application: category / city inline choice
+# Business application: category / region / district inline choice
 # ---------------------------------------------------------------------------
 def _bizapp_category_chosen(callback, sender, index_raw):
     from apps.marketplace.models import Category
@@ -535,6 +592,8 @@ def _bizapp_category_chosen(callback, sender, index_raw):
         return _answer(callback, 'Bu qadam faol emas')
     categories = list(Category.objects.filter(active=True).order_by('name'))
     try:
+        if int(index_raw) < 0:
+            raise ValueError
         category = categories[int(index_raw)]
     except (ValueError, IndexError):
         return _answer(callback, 'Noto‘g‘ri tanlov, qaytadan urinib ko‘ring')
@@ -546,23 +605,89 @@ def _bizapp_category_chosen(callback, sender, index_raw):
     return _bizapp_prompt_step(application)
 
 
-def _bizapp_city_chosen(callback, sender, index_raw):
-    from apps.marketplace.models import City
-
+def _bizapp_region_chosen(callback, sender, region_id):
     chat_id = str(sender['id'])
     application = _draft_application_for_chat(chat_id)
     if not application or application.step != _Step.ASK_CITY:
         return _answer(callback, 'Bu qadam faol emas')
-    cities = list(City.objects.order_by('name'))
-    try:
-        city = cities[int(index_raw)]
-    except (ValueError, IndexError):
+    region = get_region(region_id)
+    if not region:
         return _answer(callback, 'Noto‘g‘ri tanlov, qaytadan urinib ko‘ring')
-    application.city = city
+    application.region = region['name']
+    application.city = None
+    application.district = ''
     application.step = _Step.ASK_DISTRICT
-    application.save(update_fields=['city', 'step', 'updated_at'])
+    application.save(update_fields=['region', 'city', 'district', 'step', 'updated_at'])
     _answer(callback, 'Tanlandi')
-    _edit(callback, f'✅ Shahar: <b>{esc(city.name)}</b>')
+    _edit(callback, f"✅ Hudud: <b>{esc(region['name'])}</b>")
+    return _bizapp_prompt_step(application)
+
+
+def _bizapp_prompt_districts(application, region, page=0):
+    districts = region['districts']
+    pages = (len(districts) + DISTRICT_PAGE_SIZE - 1) // DISTRICT_PAGE_SIZE
+    start = page * DISTRICT_PAGE_SIZE
+    rows = [[{'text': district['name'],
+              'callback_data': f"bizapp_district:{region['id']}:{district['id']}"}]
+            for district in districts[start:start + DISTRICT_PAGE_SIZE]]
+    navigation = []
+    if page:
+        navigation.append({'text': '← Oldingi', 'callback_data': f"bizapp_dpage:{region['id']}:{page - 1}"})
+    if page + 1 < pages:
+        navigation.append({'text': 'Keyingi →', 'callback_data': f"bizapp_dpage:{region['id']}:{page + 1}"})
+    if navigation:
+        rows.append(navigation)
+    rows.append([{'text': '← Viloyatni o‘zgartirish', 'callback_data': 'bizapp_regions'}])
+    return send_telegram_message(application.telegram_chat_id,
+                                 '<b>4/9 · Tuman yoki shahar</b>\n\n'
+                                 f"📍 {esc(region['name'])}\n"
+                                 f'Tuman/shaharni tanlang. Sahifa {page + 1}/{pages}.',
+                                 {'inline_keyboard': rows})
+
+
+def _bizapp_district_callback(callback, sender, data):
+    parts = data.split(':', 2)
+    if len(parts) != 3:
+        return _answer(callback, 'Noto‘g‘ri tanlov')
+    action, region_id, value = parts
+    application = _draft_application_for_chat(str(sender['id']))
+    region = get_region(region_id)
+    if not application or application.step != _Step.ASK_DISTRICT or not region or application.region != region['name']:
+        return _answer(callback, 'Bu tanlov faol emas. Joriy viloyatdan tanlang.')
+    if action == 'bizapp_dpage':
+        try:
+            page = int(value)
+        except ValueError:
+            return _answer(callback, 'Sahifa topilmadi')
+        if not 0 <= page < (len(region['districts']) + DISTRICT_PAGE_SIZE - 1) // DISTRICT_PAGE_SIZE:
+            return _answer(callback, 'Sahifa topilmadi')
+        _answer(callback, 'Tumanlar')
+        # Disable the previous keyboard so a user cannot accidentally pick a stale page.
+        _edit(callback, f"📍 {esc(region['name'])} · Sahifa {page + 1}")
+        return _bizapp_prompt_districts(application, region, page)
+    district = get_district(region, value)
+    if not district:
+        return _answer(callback, 'Tuman/shahar topilmadi')
+    application.city = city_for_district(region, district)
+    application.district = district['name']
+    application.step = _Step.ASK_ADDRESS
+    application.save(update_fields=['city', 'district', 'step', 'updated_at'])
+    _answer(callback, 'Tanlandi')
+    _edit(callback, f"✅ {esc(region['name'])} · <b>{esc(district['name'])}</b>")
+    return _bizapp_prompt_step(application)
+
+
+def _bizapp_regions_back(callback, sender):
+    application = _draft_application_for_chat(str(sender['id']))
+    if not application or application.step != _Step.ASK_DISTRICT:
+        return _answer(callback, 'Bu qadam faol emas')
+    application.region = ''
+    application.city = None
+    application.district = ''
+    application.step = _Step.ASK_CITY
+    application.save(update_fields=['region', 'city', 'district', 'step', 'updated_at'])
+    _answer(callback, 'Viloyatni tanlang')
+    _edit(callback, '↩️ Viloyatni qaytadan tanlang.')
     return _bizapp_prompt_step(application)
 
 
@@ -623,7 +748,7 @@ def _bizapp_details_block(application):
     lines = [
         f'🏢 <b>Nomi:</b> {esc(application.name)}',
         f'🏷 <b>Soha:</b> {esc(application.category.name if application.category_id else "-")}',
-        f'🏙 <b>Shahar:</b> {esc(application.city.name if application.city_id else "-")}',
+        f'🗺 <b>Viloyat:</b> {esc(application.region or (application.city.region if application.city_id else "-"))}',
         f'📍 <b>Tuman:</b> {esc(application.district or "-")}',
         f'🗺 <b>Manzil:</b> {esc(application.address)}',
         f'📞 <b>Telefon:</b> {esc(application.phone)}',
@@ -685,6 +810,7 @@ def _bizapp_restart(callback, sender):
     # else is wiped so the conversation genuinely restarts from the name.
     application.name = ''
     application.category = None
+    application.region = ''
     application.city = None
     application.district = ''
     application.address = ''
@@ -693,7 +819,7 @@ def _bizapp_restart(callback, sender):
     application.hours.all().delete()
     application.step = _Step.ASK_NAME
     application.save(update_fields=[
-        'name', 'category', 'city', 'district', 'address', 'phone', 'description', 'step', 'updated_at',
+        'name', 'category', 'region', 'city', 'district', 'address', 'phone', 'description', 'step', 'updated_at',
     ])
     _answer(callback, 'Qaytadan boshlandi')
     _edit(callback, '🔄 Ma’lumotlar tozalandi (rasmlar saqlandi), qaytadan boshlaymiz.')

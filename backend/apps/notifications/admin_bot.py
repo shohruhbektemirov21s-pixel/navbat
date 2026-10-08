@@ -58,7 +58,8 @@ def card(chat_id, application):
     details = '\n'.join([
         'YANGI BIZNES ARIZASI', f'Biznes: {application.name}',
         f'Soha: {application.category.name if application.category_id else "—"}',
-        f'Shahar: {application.city.name if application.city_id else "—"}',
+        f'Viloyat: {application.region or (application.city.region if application.city_id else "—")}',
+        f'Tuman/shahar: {application.district or (application.city.name if application.city_id else "—")}',
         f'Manzil: {application.address}', f'Telefon: {application.phone}',
         f'Arizachi: {applicant.name} · {applicant.email}' if applicant else f'Telegram: @{application.telegram_username}',
         'Ish vaqti: ' + ', '.join(f'{row.day_of_week}: {row.open_time}–{row.close_time}' for row in application.hours.all() if not row.is_closed),

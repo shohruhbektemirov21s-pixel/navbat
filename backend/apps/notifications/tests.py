@@ -72,7 +72,7 @@ class BusinessApplicationBotFlowTests(BaseAPITestCase):
     def _callback(self, data, update_id=1, from_id=None):
         return {'update_id': update_id, 'callback_query': {
             'id': f'cb{update_id}', 'from': {'id': from_id or int(self.chat_id)}, 'data': data,
-            'message': {'chat': {'id': from_id or int(self.chat_id)}, 'message_id': update_id},
+            'message': {'chat': {'id': from_id or int(self.chat_id), 'type': 'private'}, 'message_id': update_id},
         }}
 
     def test_full_conversation_creates_pending_application(self):
@@ -93,11 +93,11 @@ class BusinessApplicationBotFlowTests(BaseAPITestCase):
             self.assertEqual(application.step, Step.ASK_CITY)
             self.assertIsNotNone(application.category_id)
 
-            handle_update(self._callback('bizapp_city:0', 4))
+            handle_update(self._callback('bizapp_region:qa', 4))
             application.refresh_from_db()
             self.assertEqual(application.step, Step.ASK_DISTRICT)
 
-            handle_update(self._message('/skip', 5))
+            handle_update(self._callback('bizapp_district:qa:qarshi-shahri', 5))
             handle_update(self._message('Amir Temur ko‘chasi 5', 6))
             handle_update(self._message('not-a-phone', 7))
             application.refresh_from_db()

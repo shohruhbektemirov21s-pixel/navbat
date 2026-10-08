@@ -110,6 +110,12 @@ Admin bot profilidagi Main Mini App (`Open App`) ni BotFather orqali alohida o'c
 chat menu tugmasi polling komandasi tomonidan `commands` turiga o'zgartiriladi.
 
 Biznes egasi Telegramdagi `/start bizapp` orqali yoki saytdagi ariza formasida ro'yxatdan o'tadi.
+Botda `/biznes` yangi arizani boshlaydi, `/arizam` holatini ko'rsatadi.
+Hudud tanlash: viloyat → tuman/shahar → aniq manzil. Barcha 14 ta hudud,
+177 ta tuman va 31 ta shahar mavjud; tumanlar 8 tadan sahifalanadi.
+`Viloyatni o‘zgartirish` tugmasi oldingi tanlovga qaytaradi.
+Hududlar katalogi va rasmiy manbalar: `backend/apps/marketplace/data/README.md`.
+Yangilashda `python manage.py migrate` ni bajaring va botni qayta ishga tushiring.
 Ariza `PENDING` holatda saqlanadi va katalogga chiqmaydi. Sayt egasi yopiq botda `/arizalar`
 orqali ko'rib, `Tasdiqlash` yoki `Rad etish` ni bosadi; rad etishda sabab talab qilinadi.
 Begona hisoblar va guruhlardagi xabarlar admin bot tomonidan rad etiladi.

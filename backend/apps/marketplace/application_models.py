@@ -45,6 +45,7 @@ class BusinessApplication(models.Model):
 
     name = models.CharField(max_length=255, blank=True)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
+    region = models.CharField(max_length=128, blank=True)
     city = models.ForeignKey(City, on_delete=models.SET_NULL, null=True, blank=True)
     district = models.CharField(max_length=128, blank=True)
     address = models.CharField(max_length=255, blank=True)

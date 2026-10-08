@@ -58,6 +58,15 @@ class Command(BaseCommand):
                 telegram_api('setMyCommands', {'scope': {'type': 'chat', 'chat_id': int(user_id)},
                             'commands': [{'command': 'arizalar', 'description': 'Biznes arizalarini ko‘rish'},
                                          {'command': 'bekor', 'description': 'Rad etishni bekor qilish'}]}, token=token)
+        else:
+            telegram_api('setChatMenuButton', {'menu_button': {'type': 'commands'}}, token=token)
+            telegram_api('setMyCommands', {'commands': [
+                {'command': 'start', 'description': 'Asosiy menyu'},
+                {'command': 'biznes', 'description': 'Biznesni ro‘yxatdan o‘tkazish'},
+                {'command': 'arizam', 'description': 'Ariza holatini ko‘rish'},
+                {'command': 'yordam', 'description': 'Yordam va davom ettirish'},
+                {'command': 'bekor_qilish', 'description': 'Qoralama arizani bekor qilish'},
+            ]}, token=token)
         self.stdout.write(self.style.SUCCESS(f"@{me.get('username')} ishga tushdi (long polling). To‘xtatish: Ctrl+C"))
 
         offset_key = 'telegram_admin_update_offset' if is_admin else OFFSET_KEY
