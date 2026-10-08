@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback, lazy, Suspense } from 'react';
 import {
-  Search, MapPin, Shield, ShieldCheck, Building2, QrCode,
+  Shield, Building2,
   Navigation, AlertCircle, CheckCircle2, RefreshCw, LogIn
 } from 'lucide-react';
 import { useGeolocation } from './hooks/useGeolocation';
@@ -14,7 +14,9 @@ import { BusinessCard } from './components/BusinessCard';
 import { AuthModal } from './components/AuthModal';
 import { LegalModal } from './components/LegalModal';
 import { MobileBottomNav } from './components/MobileBottomNav';
-import { HeroLiveWidget } from './components/HeroLiveWidget';
+import { LandingHero } from './components/LandingHero';
+import { BusinessConnectChoice } from './components/BusinessConnectChoice';
+import { BusinessApplicationModal } from './components/BusinessApplicationModal';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageSpinner, OverlaySpinner } from './components/ui/Spinner';
 import { useTranslation } from './i18n/LanguageContext';
@@ -81,7 +83,7 @@ const AccessDenied: React.FC<{ message: string; onHome: () => void; onLogin?: ()
 );
 
 export default function App() {
-  const { t, translateCategory, translateCity } = useTranslation();
+  const { t, translateCategory } = useTranslation();
   const { isTMA, showBackButton } = useTelegramWebApp();
 
   // Initial route is parsed once from the URL (supports refresh + deep links).
@@ -125,16 +127,18 @@ export default function App() {
     isLoading: isGeoLoading, 
     error: geoError, 
     requestLocation, 
-    clearLocation 
   } = useGeolocation();
   const [gpsNotice, setGpsNotice] = useState<string | null>(null);
 
   // Modals state
   const [authModalOpen, setAuthModalOpen] = useState<boolean>(false);
+  const [applicationOpen, setApplicationOpen] = useState(false);
+  const [applicationChoiceOpen, setApplicationChoiceOpen] = useState(false);
+  const [applicationAfterLogin, setApplicationAfterLogin] = useState(false);
   const [authInitialMode, setAuthInitialMode] = useState<'login' | 'register'>('login');
   const [legalModalType, setLegalModalType] = useState<'privacy' | 'terms' | 'support' | null>(null);
   const [qrModalBusiness, setQrModalBusiness] = useState<BusinessItem | null>(null);
-  const { toast, showToast } = useToast();
+  const { toast } = useToast();
 
   // Refs mirror state for use inside stable callbacks / global listeners.
   const currentUserRef = useRef<User | null>(currentUser);
@@ -497,21 +501,27 @@ export default function App() {
   };
 
   const closeAllModals = () => {
+    setApplicationChoiceOpen(false);
+    setApplicationOpen(false);
     setAuthModalOpen(false);
     setLegalModalType(null);
     setQrModalBusiness(null);
     setScanQRModalOpen(false);
   };
 
-  /** Opens the Telegram bot deep link so the owner can submit/connect their business via chat. */
-  const openTelegramBusinessConnect = useCallback(async () => {
-    try {
-      const res = await api.getTelegramBusinessConnectLink();
-      window.open(res.deepLink, '_blank', 'noopener,noreferrer');
-    } catch (err: any) {
-      showToast(err?.message || "Telegram botga ulanishda xatolik yuz berdi. Birozdan so'ng qayta urinib ko'ring", 'error');
+  const openBusinessApplication = useCallback(() => {
+    setApplicationChoiceOpen(true);
+  }, []);
+  const openWebsiteApplication = useCallback(() => {
+    setApplicationChoiceOpen(false);
+    if (!currentUser) {
+      setApplicationAfterLogin(true);
+      setAuthInitialMode('register');
+      setAuthModalOpen(true);
+      return;
     }
-  }, [showToast]);
+    setApplicationOpen(true);
+  }, [currentUser]);
 
   const isProtectedView = PROTECTED_VIEWS.has(activeView);
   const waitingForAuth = isProtectedView && !authChecked;
@@ -534,7 +544,7 @@ export default function App() {
           onOpenAuth={(mode = 'login') => openAuth(mode)}
           onLogout={handleLogout}
           activeQueueCount={activeQueueCount}
-          onOpenBusinessOnboarding={openTelegramBusinessConnect}
+          onOpenBusinessOnboarding={openBusinessApplication}
           onOpenScanQR={() => setScanQRModalOpen(true)}
         />
       </ErrorBoundary>
@@ -548,151 +558,14 @@ export default function App() {
           <div>
             {/* Hero Search Section - Compact, Focused & 2-Second Visual Understanding */}
             {activeView === 'home' && (
-              <section className="relative bg-slate-900 bg-gradient-to-b from-[#0a0f1d] via-[#0f172a] to-[#0a0f1d] text-white pt-5 pb-6 px-3 sm:pt-8 sm:pb-10 sm:px-6 overflow-hidden border-b border-slate-800/80">
-                {/* Subtle Dot Grid Background Pattern */}
-                <div 
-                  className="absolute inset-0 opacity-[0.08] pointer-events-none"
-                  style={{
-                    backgroundImage: `radial-gradient(#94a3b8 1px, transparent 1px)`,
-                    backgroundSize: '20px 20px'
-                  }}
-                />
-
-                {/* Subtle soft ambient light glow behind search */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 sm:w-96 h-40 bg-blue-600/15 blur-3xl pointer-events-none rounded-full" />
-
-                <div className="relative max-w-3xl mx-auto text-center space-y-3 sm:space-y-3.5">
-                  {/* Visual Micro-Widget (Live Queue & Time Booking demo) */}
-                  <div className="flex justify-center">
-                    <HeroLiveWidget />
-                  </div>
-
-                  {/* Hero: Kutib o‘tirmang. Navbatingizni oldindan oling. */}
-                  <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white leading-tight">
-                    Kutib o‘tirmang.
-                    <span className="block text-blue-400 font-extrabold text-xl sm:text-3xl mt-1">
-                      Navbatingizni oldindan oling.
-                    </span>
-                  </h1>
-
-                  {/* Single short, crisp subtitle */}
-                  <p className="text-xs sm:text-sm text-slate-300 max-w-lg mx-auto font-normal">
-                    Klinika, salon, avtoservis va ta’lim markazlariga masofadan navbat oling yoki aniq vaqtni bron qiling.
-                  </p>
-
-                  {/* Katta qidiruv: Biznes yoki xizmat qidirish */}
-                  <form
-                    onSubmit={handleSearchSubmit}
-                    className="max-w-2xl mx-auto bg-white p-1.5 sm:p-2 rounded-2xl shadow-xl shadow-slate-950/40 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-2 border border-slate-200 mt-2 transition hover:border-slate-300"
-                  >
-                    <div className="flex-1 min-w-[9rem] flex items-center gap-2.5 px-3 py-2 w-full text-slate-800">
-                      <Search className="w-5 h-5 text-slate-400 shrink-0" />
-                      <input
-                        type="text"
-                        id="main-search-input"
-                        placeholder="Biznes yoki xizmat qidirish..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full text-sm font-medium placeholder:text-slate-400 focus:outline-none bg-transparent"
-                      />
-                    </div>
-
-                    <div className="h-6 w-px bg-slate-200 hidden sm:block" />
-
-                    {/* City Select */}
-                    <div className="w-full sm:w-44 px-3 py-2 text-slate-700 flex items-center gap-2 bg-slate-50 sm:bg-transparent rounded-xl sm:rounded-none">
-                      <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
-                      {cities.length <= 1 ? (
-                        <div className="w-full text-xs font-semibold text-slate-800 flex items-center">
-                          <span>{cities[0] ? translateCity(cities[0].name) : 'Qarshi'}</span>
-                        </div>
-                      ) : (
-                        <select
-                          id="hero-city-select"
-                          value={selectedCity}
-                          onChange={(e) => {
-                            setSelectedCity(e.target.value);
-                            setPage(1);
-                          }}
-                          className="w-full text-xs font-semibold bg-transparent focus:outline-none cursor-pointer text-slate-800"
-                        >
-                          <option value="">{t('select_city')} ({t('cat_all')})</option>
-                          {cities.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {translateCity(c.name)}
-                            </option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-
-                    {/* Geolocation GPS Action Button */}
-                    <button
-                      type="button"
-                      id="hero-gps-btn"
-                      onClick={handleGpsSearch}
-                      title="GPS"
-                      className={`w-full sm:w-auto px-4 py-2.5 sm:py-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shrink-0 active:scale-[0.98] cursor-pointer ${
-                        coords && sortBy === 'nearby'
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      <Navigation className={`w-3.5 h-3.5 ${coords && sortBy === 'nearby' ? 'text-blue-600 fill-blue-600' : 'text-slate-500'}`} />
-                      <span>{isGeoLoading ? t('detecting_gps') : coords && sortBy === 'nearby' ? t('near_me_active') : t('near_me')}</span>
-                    </button>
-
-                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
-                      <button
-                        type="button"
-                        id="hero-scan-qr-btn"
-                        onClick={() => setScanQRModalOpen(true)}
-                        className="flex-1 sm:flex-initial px-3.5 py-2.5 sm:py-3 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 border border-slate-200 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 active:scale-[0.98] cursor-pointer"
-                        title={t('scan_qr_desc')}
-                      >
-                        <QrCode className="w-4 h-4 text-blue-600 shrink-0" />
-                        <span className="whitespace-nowrap">{t('scan_qr')}</span>
-                      </button>
-
-                      {/* Main 'Navbat olish' CTA */}
-                      <button
-                        type="submit"
-                        id="hero-search-btn"
-                        className="flex-1 sm:flex-initial px-6 py-2.5 sm:py-3 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold uppercase rounded-xl transition shadow-md shadow-blue-500/25 active:scale-[0.98] cursor-pointer whitespace-nowrap"
-                      >
-                        {t('take_queue')}
-                      </button>
-                    </div>
-                  </form>
-
-                  {/* Dynamic GPS Feedback Notice */}
-                  {gpsNotice && (
-                    <div className="pt-1 flex items-center justify-center">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-900/80 backdrop-blur-md border border-blue-400/40 rounded-full text-[11px] sm:text-xs text-blue-100 shadow-sm animate-in fade-in">
-                        <Navigation className="w-3 h-3 text-blue-300 fill-blue-300" />
-                        <span>{gpsNotice}</span>
-                        <button onClick={() => setGpsNotice(null)} aria-label="Yopish" className="text-white/60 hover:text-white font-bold ml-1 text-xs cursor-pointer">✕</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {geoError && (
-                    <div className="pt-1 flex items-center justify-center">
-                      <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-950/80 backdrop-blur-md border border-amber-400/50 rounded-full text-[11px] sm:text-xs text-amber-200 shadow-sm animate-in fade-in">
-                        <AlertCircle className="w-3 h-3 text-amber-400" />
-                        <span>{geoError}</span>
-                        <button onClick={clearLocation} aria-label="Yopish" className="text-amber-200 hover:text-white font-bold ml-1 text-xs cursor-pointer">✕</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Single Honest Trust Signal */}
-                  <div className="pt-0.5 flex items-center justify-center gap-1.5 text-[11px] sm:text-xs text-slate-400">
-                    <ShieldCheck className="w-3.5 h-3.5 text-blue-400 shrink-0" />
-                    <span>{t('hero_badge')}</span>
-                  </div>
-                </div>
-              </section>
+              <LandingHero
+                cities={cities} city={selectedCity} query={searchQuery}
+                onCity={(id) => { setSelectedCity(id); setPage(1); }} onQuery={setSearchQuery}
+                onSearch={handleSearchSubmit} onGps={handleGpsSearch} onScan={() => setScanQRModalOpen(true)}
+                gpsLoading={isGeoLoading} gpsActive={Boolean(coords && sortBy === 'nearby')}
+                notice={gpsNotice} error={geoError}
+                onConnectBusiness={openBusinessApplication}
+              />
             )}
 
             {/* Sticky Category Quick Filter Bar */}
@@ -740,13 +613,13 @@ export default function App() {
               </div>
             </div>
 
-            {/* Yaqin atrofdagi bizneslar */}
-            <section id="catalog-section" className="max-w-7xl mx-auto px-3 sm:px-6 py-5 sm:py-8">
+            {/* Siz uchun xizmatlar */}
+            <section id="catalog-section" className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
               {/* Catalog header & sorting */}
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-                    Yaqin atrofdagi bizneslar
+                    Siz uchun xizmatlar
                   </h2>
                   <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
                     {selectedCategory
@@ -772,6 +645,7 @@ export default function App() {
                   <span className="text-xs text-slate-500 ml-1">{t('sort_label')}</span>
                   <select
                     id="catalog-sort-select"
+                    aria-label="Xizmatlarni saralash"
                     value={sortBy}
                     onChange={(e) => {
                       setSortBy(e.target.value);
@@ -859,7 +733,7 @@ export default function App() {
                   </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                   {businesses.map((biz) => (
                     <BusinessCard
                       key={biz.id}
@@ -943,7 +817,7 @@ export default function App() {
         {activeView === 'business-dashboard' && authChecked && (
           currentUser && BUSINESS_ROLES.includes(role) ? (
             <BusinessDashboard
-              onOpenOnboarding={openTelegramBusinessConnect}
+              onOpenOnboarding={openBusinessApplication}
             />
           ) : (
             <AccessDenied
@@ -999,7 +873,7 @@ export default function App() {
         {activeView === 'for-business' && (
           <BusinessBenefitsPage
             onBack={goBack}
-            onOpenOnboarding={openTelegramBusinessConnect}
+            onOpenOnboarding={openBusinessApplication}
           />
         )}
         </Suspense>
@@ -1009,31 +883,9 @@ export default function App() {
       {/* Footer */}
       <Footer
         onOpenLegal={(type) => setLegalModalType(type)}
-        onOpenBusinessOnboarding={openTelegramBusinessConnect}
+        onOpenBusinessOnboarding={openBusinessApplication}
         onNavigate={setActiveView}
       />
-
-      {/* Floating QR Scanner Button (Desktop Only: hidden on mobile to prevent overlapping) */}
-      <button
-        id="floating-qr-scan-btn"
-        onClick={() => setScanQRModalOpen(true)}
-        className="hidden md:flex fixed bottom-8 right-8 z-30 items-center gap-3 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white pl-4 pr-5 py-3 rounded-full shadow-xl shadow-blue-600/35 hover:shadow-blue-600/50 hover:scale-105 active:scale-95 transition-all cursor-pointer group border-2 border-white/90"
-        title="QR Scanner — QR orqali navbat oling"
-        aria-label="QR Scanner"
-      >
-        <div className="relative">
-          <QrCode className="w-5 h-5 text-white transition-transform group-hover:rotate-12" />
-          <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-emerald-400 rounded-full ring-2 ring-blue-600 animate-ping" />
-        </div>
-        <div className="flex flex-col text-left">
-          <span className="text-xs font-black uppercase tracking-wider leading-none">
-            QR Scanner
-          </span>
-          <span className="text-[10px] text-blue-100 font-semibold leading-tight mt-0.5">
-            QR orqali navbat oling
-          </span>
-        </div>
-      </button>
 
       {/* Global toast (e.g. Telegram bot connection errors) */}
       {toast && (
@@ -1051,11 +903,16 @@ export default function App() {
       {authModalOpen && (
         <AuthModal
           initialMode={authInitialMode}
-          onClose={() => setAuthModalOpen(false)}
+          onClose={() => { setAuthModalOpen(false); setApplicationAfterLogin(false); }}
           onSuccess={(u) => {
             setCurrentUser(u);
             setAuthChecked(true);
             setAuthModalOpen(false);
+            if (applicationAfterLogin) {
+              setApplicationAfterLogin(false);
+              setApplicationOpen(true);
+              return;
+            }
             // Stay on a public page the user was browsing (e.g. a business they want to book).
             if (activeViewRef.current === 'business-detail') return;
             if (BUSINESS_ROLES.includes(u.role)) navigate('business-dashboard');
@@ -1069,6 +926,10 @@ export default function App() {
       {legalModalType && (
         <LegalModal type={legalModalType} onClose={() => setLegalModalType(null)} />
       )}
+      {applicationOpen && currentUser && (
+        <BusinessApplicationModal user={currentUser} categories={categories} cities={cities} onClose={() => setApplicationOpen(false)} />
+      )}
+      {applicationChoiceOpen && <BusinessConnectChoice onClose={() => setApplicationChoiceOpen(false)} onWebsite={openWebsiteApplication} />}
 
       {qrModalBusiness && (
         <QRCodeModal

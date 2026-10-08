@@ -1882,7 +1882,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ onOpenOnbo
                 <h3 className="text-sm font-bold text-slate-900">Telegram Bot & Guruh Bildirishnomalari</h3>
               </div>
               <a
-                href={`https://t.me/Navbat1Uzb_bot?start=biz_${business?.id || ''}`}
+                href={`https://t.me/navbatbor_biznes_bot?start=biz_${business?.id || ''}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="px-3 py-1.5 bg-[#2AABEE] hover:bg-[#229ED9] text-white text-xs font-bold rounded-xl shadow-xs transition flex items-center gap-1.5 cursor-pointer"
@@ -1932,7 +1932,7 @@ export const BusinessDashboard: React.FC<BusinessDashboardProps> = ({ onOpenOnbo
 
               <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
                 <div className="text-[11px] text-slate-500">
-                  Guruhga <strong>@Navbat1Uzb_bot</strong> ni qo‘shib, xabarlarni butun jamoangiz bilan kuzatishingiz mumkin.
+                  Guruhga <strong>@navbatbor_biznes_bot</strong> ni qo‘shib, xabarlarni butun jamoangiz bilan kuzatishingiz mumkin.
                 </div>
                 <button
                   type="submit"

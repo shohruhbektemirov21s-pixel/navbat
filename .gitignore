@@ -8,6 +8,7 @@ venv/
 dist/
 build/
 coverage/
+local-qa/
 staticfiles/
 
 # User-uploaded media (Telegram business-application photos, etc.)

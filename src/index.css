@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+:root { --font-sans: "Plus Jakarta Sans", "Segoe UI", system-ui, sans-serif; font-family: var(--font-sans); color: #0f172a; font-synthesis: none; }
+html { scroll-behavior: smooth; scroll-padding-top: 9rem; }
+body { margin: 0; min-width: 320px; }
+button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+button, a { touch-action: manipulation; }
+button:not(:disabled) { cursor: pointer; }
+button:disabled { cursor: wait; opacity: .65; }
+:focus-visible { outline: 3px solid #60a5fa; outline-offset: 3px; }
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.primary-button { min-height: 48px; border-radius: 12px; padding: 12px 20px; background: #2563eb; color: white; font-size: 14px; font-weight: 600; transition: background .15s; text-decoration: none; }
+.primary-button:hover { background: #1d4ed8; }
+.hero-utility { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 500; border: 1px solid #e2e8f0; }
+.field-label { display: flex; flex-direction: column; gap: 7px; font-size: 13px; font-weight: 600; color: #334155; }
+.form-field { display: block; width: 100%; min-height: 48px; border: 1px solid #dbe2ec; background: #fff; border-radius: 12px; padding: 12px 14px; font-size: 16px; font-weight: 400; color: #0f172a; }
+.form-field:focus { outline: 2px solid #93c5fd; border-color: #2563eb; }
+.business-card { border-radius: 20px; box-shadow: 0 2px 6px #0f172a05; }
+.business-card:hover { box-shadow: 0 8px 24px #0f172a0c; }
+@media (max-width: 767px) {
+  input, select, textarea { font-size: 16px !important; }
+  .application-dialog, .business-connect-dialog { padding-bottom: max(24px, env(safe-area-inset-bottom)); }
+  #catalog-section { padding-top: 28px; padding-bottom: 32px; }
+  #catalog-sort-select { min-height: 44px; }
+  footer { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
 @keyframes laserScan {
   0% {
     top: 6%;

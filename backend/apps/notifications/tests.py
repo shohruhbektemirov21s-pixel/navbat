@@ -50,11 +50,15 @@ class BusinessApplicationHoursParsingTests(BaseAPITestCase):
         self.assertIsNone(_parse_hours_text('Har kuni, 18:00-09:00'))
 
 
+@override_settings(TELEGRAM_BOT_TOKEN='', TELEGRAM_ADMIN_BOT_TOKEN='')
 class BusinessApplicationBotFlowTests(BaseAPITestCase):
     """End-to-end conversation flow driven directly through handle_update() (no real Telegram)."""
 
     def setUp(self):
         super().setUp()
+        api_mock = patch('apps.notifications.bot.telegram_api', return_value=True)
+        api_mock.start()
+        self.addCleanup(api_mock.stop)
         from apps.core.testing_utils import make_category, make_city
         self.category = make_category()
         self.city = make_city()

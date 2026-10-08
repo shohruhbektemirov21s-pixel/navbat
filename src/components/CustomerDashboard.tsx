@@ -672,7 +672,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <a
-                    href={`https://t.me/Navbat1Uzb_bot?start=queue_${activeQueue.id}`}
+                    href={`https://t.me/navbatbor_biznes_bot?start=queue_${activeQueue.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="px-3.5 py-1.5 bg-white text-amber-800 hover:bg-amber-50 rounded-xl font-bold transition flex items-center gap-1.5 shadow-sm"
@@ -900,7 +900,7 @@ export const CustomerDashboard: React.FC<CustomerDashboardProps> = ({
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <Send className="w-3.5 h-3.5 text-[#0088cc] fill-[#0088cc]" />
-                    <span>Telegram Bot: @Navbat1Uzb_bot</span>
+                    <span>Telegram Bot: @navbatbor_biznes_bot</span>
                   </div>
                   <p className="text-[11px] text-slate-600 mt-0.5">
                     {t('telegram_bot')}

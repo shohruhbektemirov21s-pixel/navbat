@@ -216,7 +216,7 @@ function signalSessionExpired() {
 async function request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
   const token = getStoredToken();
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers as Record<string, string>),
   };
 
@@ -269,6 +269,8 @@ export function isAbortError(err: unknown): boolean {
 }
 
 export const api = {
+  getMyBusinessApplications: () => request<Array<{ id: string; name: string; status: string; rejectReason: string; businessSlug: string | null }>>('/api/business-applications'),
+  submitBusinessApplication: (data: FormData) => request<{ id: string; name: string; status: string }>('/api/business-applications', { method: 'POST', body: data }),
   // Auth
   register: (body: { email: string; password: string; name: string; phone?: string }) =>
     request<{ user: any } & AuthTokensResponse>('/api/auth/register', { method: 'POST', body: JSON.stringify(body) }),

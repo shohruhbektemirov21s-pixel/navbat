@@ -105,7 +105,7 @@ def _handle_message(message):
             'Bu bot orqali siz:\n• saytga Telegram orqali kirasiz\n• navbatingiz kelganda xabar olasiz\n'
             '• bron eslatmalarini olasiz\n• biznesingizni NavbatBor katalogiga qo‘shasiz (/start bizapp).\n\n'
             'Saytdagi «Telegram orqali kirish» tugmasini bosing yoki /start bizapp yuboring.'
-        ))
+        ), {'inline_keyboard': [[{'text': 'Biznesni ro‘yxatdan o‘tkazish', 'callback_data': 'bizapp_begin'}]]})
     return None
 
 
@@ -194,6 +194,12 @@ def _handle_callback(callback):
     sender = callback.get('from') or {}
     if not sender.get('id'):
         return
+    if data == 'bizapp_begin':
+        chat = (callback.get('message') or {}).get('chat') or {}
+        if chat.get('type') != 'private' or str(chat.get('id')) != str(sender['id']):
+            return _answer(callback, 'Botga shaxsiy xabar yozing.')
+        _answer(callback, 'Ariza boshlanmoqda')
+        return _bizapp_start(str(sender['id']), sender, '')
     if data.startswith('auth_ok_') or data.startswith('auth_no_'):
         return _auth_decision(callback, sender, data[len('auth_ok_'):], approve=data.startswith('auth_ok_'))
     if data.startswith('confirm_next_') or data.startswith('cancel_next_'):
@@ -207,8 +213,12 @@ def _handle_callback(callback):
     if data == 'bizapp_restart':
         return _bizapp_restart(callback, sender)
     if data.startswith('bizapp_approve:'):
+        if settings.TELEGRAM_ADMIN_BOT_TOKEN:
+            return _answer(callback, 'Arizalar faqat yopiq admin botda ko‘rib chiqiladi.')
         return _bizapp_approve_callback(callback, sender, data[len('bizapp_approve:'):])
     if data.startswith('bizapp_reject:'):
+        if settings.TELEGRAM_ADMIN_BOT_TOKEN:
+            return _answer(callback, 'Arizalar faqat yopiq admin botda ko‘rib chiqiladi.')
         return _bizapp_reject_callback(callback, sender, data[len('bizapp_reject:'):])
     _answer(callback, 'Noma’lum amal')
 
@@ -724,6 +734,9 @@ def _send_application_card(chat_id, application, text, keyboard):
 
 
 def _bizapp_broadcast_to_admins(application):
+    if settings.TELEGRAM_ADMIN_BOT_TOKEN:
+        from .admin_bot import notify_owner
+        return notify_owner(application)
     admins = User.objects.filter(role__in=ADMIN_ROLES, is_active=True).exclude(telegram_chat_id='').exclude(telegram_chat_id__isnull=True)
     text = _bizapp_admin_summary_text(application)
     keyboard = _bizapp_approve_reject_keyboard(application.id)
@@ -784,6 +797,9 @@ def _bizapp_receive_reject_reason(application, chat_id, text):
     from apps.marketplace.models import BusinessApplication, BusinessApplicationStatus
     from apps.marketplace.services import reject_business_application
 
+    if settings.TELEGRAM_ADMIN_BOT_TOKEN:
+        return None
+
     reason = text.strip()
     if not reason:
         return send_telegram_message(chat_id, 'Iltimos, rad etish sababini matn sifatida yozing.')
@@ -801,6 +817,9 @@ def _bizapp_receive_reject_reason(application, chat_id, text):
 
 def _bizapp_admin_list_command(chat_id):
     from apps.marketplace.models import BusinessApplication, BusinessApplicationStatus
+
+    if settings.TELEGRAM_ADMIN_BOT_TOKEN:
+        return None
 
     if not _is_admin_chat(chat_id):
         return None  # silently ignore for non-admins

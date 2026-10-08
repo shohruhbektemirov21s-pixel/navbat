@@ -68,6 +68,15 @@ Loyiha ildizida `.env` faylini yarating (`.env.example` namunasi bo'yicha). Muhi
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET` | Telegram bot integratsiyasi uchun |
 
 ### 3. Tezkor ishga tushirish (dasturlash rejimi):
+Windows uchun tayyorlangan lokal o'rnatishda `start-local.cmd` faylini oching
+yoki PowerShell orqali `./start-local.ps1` buyrug'ini bajaring.
+Frontend: http://localhost:3000. Backend va Django Admin:
+http://127.0.0.1:8002/admin/. `8000` va `8001` portlari ushbu kompyuterda
+boshqa dasturlarda band bo'lgani uchun lokal backend `8002` portiga sozlangan.
+Serverlar fon rejimida ishlaydi; loglar `frontend.*.log` va `backend.*.log`
+fayllarida saqlanadi. Telegram integratsiyasi uchun `.env` ichida bot tokenini
+alohida sozlash kerak.
+
 ```bash
 ./start.sh
 ```
@@ -88,6 +97,28 @@ npm run dev
 ```
 
 ### 4. Telegram bot (xabarnomalar va `/start auth_..` / `link_..` havolalari):
+Ikki alohida bot ishlatiladi:
+
+- `TELEGRAM_BOT_TOKEN` va `TELEGRAM_BOT_USERNAME`: ochiq biznes arizalari, kirish va bildirishnomalar boti.
+- `TELEGRAM_ADMIN_BOT_TOKEN`: yopiq sayt egasi boti. Uning havolasi ommaviy interfeysga chiqarilmaydi.
+- `TELEGRAM_ADMIN_USER_IDS`: tasdiqlash huquqiga ega sayt egasining Telegram raqamli user ID si. Bo'sh bo'lsa admin bot hech kimga kirish bermaydi.
+- `TELEGRAM_ADMIN_REVIEWER_EMAIL`: bazadagi faol `FOUNDER` hisobining emaili; tasdiqlash va rad etish shu hisob nomidan auditga yoziladi. Lokal demo uchun `rasulovjahongir074@gmail.com`.
+
+`start-local.cmd` Windows'da sayt, backend va sozlangan botlarni fon rejimida ishga tushiradi.
+Admin ID berilmagan bo'lsa, faqat biznes bot boshlanadi. Tokenlar faqat `.env` da saqlanadi.
+Admin bot profilidagi Main Mini App (`Open App`) ni BotFather orqali alohida o'chirish kerak;
+chat menu tugmasi polling komandasi tomonidan `commands` turiga o'zgartiriladi.
+
+Biznes egasi Telegramdagi `/start bizapp` orqali yoki saytdagi ariza formasida ro'yxatdan o'tadi.
+Ariza `PENDING` holatda saqlanadi va katalogga chiqmaydi. Sayt egasi yopiq botda `/arizalar`
+orqali ko'rib, `Tasdiqlash` yoki `Rad etish` ni bosadi; rad etishda sabab talab qilinadi.
+Begona hisoblar va guruhlardagi xabarlar admin bot tomonidan rad etiladi.
+
+Yopiq botni alohida ishga tushirish:
+```powershell
+./backend/venv/Scripts/python.exe backend/manage.py telegram_bot --admin
+```
+
 ```bash
 cd backend && source venv/bin/activate
 python manage.py telegram_bot       # long-polling rejimi

@@ -747,13 +747,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
       <div className="bg-slate-900 text-white rounded-3xl p-6 sm:p-8 mb-8 shadow-sm relative overflow-hidden">
         <div className="absolute right-0 top-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
         <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+          <div className="flex items-start sm:items-center gap-3 sm:gap-4 min-w-0">
+            <div className="w-11 h-11 sm:w-14 sm:h-14 shrink-0 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
               <Shield className="w-8 h-8" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black tracking-tight">NavbatBor Boshqaruv Markazi</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight">NavbatBor Boshqaruv Markazi</h1>
                 <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
                   Super Admin
                 </span>
@@ -1067,7 +1067,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
           {chartsData && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Daily Bookings Activity */}
-              <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200 p-6 shadow-xs">
+              <div className="lg:col-span-2 min-w-0 bg-white rounded-2xl border border-slate-200 p-4 sm:p-6 shadow-xs">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-sm font-black text-slate-900">So‘nggi 14 Kunlik Bronlar Faolligi</h3>
@@ -1078,14 +1078,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                   </span>
                 </div>
 
-                <div className="h-64 flex items-end gap-2 pt-8 px-2 border-b border-slate-100">
+                <div className="overflow-x-auto" aria-label="Kunlik bronlar grafigi" tabIndex={0}>
+                <div className="h-64 min-w-[520px] flex items-end gap-2 pt-8 px-2 border-b border-slate-100">
                   {chartsData.dailyBookings?.map((item: any, idx: number) => {
                     const maxCount = Math.max(...chartsData.dailyBookings.map((b: any) => b.count), 5);
                     const heightPercent = Math.max((item.count / maxCount) * 100, 10);
                     return (
-                      <div key={idx} className="flex-1 flex flex-col items-center group relative">
+                      <div key={idx} className="flex-1 min-w-0 flex flex-col items-center group relative" title={`${item.date}: ${item.count} ta bron`}>
                         {/* Tooltip */}
-                        <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition bg-slate-900 text-white text-[10px] py-1 px-2 rounded pointer-events-none whitespace-nowrap z-20 shadow-lg">
+                        <div className="hidden sm:group-hover:block absolute -top-12 bg-slate-900 text-white text-[10px] py-1 px-2 rounded pointer-events-none whitespace-nowrap z-20 shadow-lg">
                           <div>Sana: {item.date}</div>
                           <div>Bronlar: {item.count} ta</div>
                           <div>Tushum: {item.revenue?.toLocaleString()} so‘m</div>
@@ -1101,6 +1102,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ onSwitchToPartner }) => 
                       </div>
                     );
                   })}
+                </div>
                 </div>
               </div>
 

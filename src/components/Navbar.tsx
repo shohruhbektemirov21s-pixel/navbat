@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   Clock, Shield, Briefcase,
   LogOut, Menu, X, MapPin, Send, Globe, QrCode
@@ -37,6 +37,17 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const { t, translateCity, lang, setLang, languages } = useTranslation();
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMobileMenuOpen(false);
+        document.getElementById('mobile-hamburger-btn')?.focus();
+      }
+    };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [mobileMenuOpen]);
 
   const navigateTo = (view: 'home' | 'search' | 'customer-dashboard' | 'business-dashboard' | 'admin-panel' | 'operating-partner' | 'for-customers' | 'for-business') => {
     setActiveView(view);
@@ -45,7 +56,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
+    <header className="site-header sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200">
       {/* Main navigation */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between gap-3">
         {/* Brand Logo & Location */}
@@ -69,6 +80,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
               <select
                 id="nav-city-select"
+                aria-label="Shaharni tanlash"
                 value={selectedCity}
                 onChange={(e) => onSelectCity(e.target.value)}
                 className="bg-transparent font-medium text-slate-800 cursor-pointer focus:outline-none text-xs"
@@ -90,7 +102,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Action Links (Desktop & Tablet) */}
-        <div className="hidden md:flex items-center gap-2 lg:gap-3">
+        <div className="hidden xl:flex items-center gap-2 xl:gap-3">
           <button
             id="nav-catalog-btn"
             onClick={() => navigateTo('search')}
@@ -127,19 +139,6 @@ export const Navbar: React.FC<NavbarProps> = ({
             Biznesga
           </button>
 
-          {/* QR Skaner (Instant Check-in) */}
-          {onOpenScanQR && (
-            <button
-              id="nav-scan-qr-btn"
-              onClick={onOpenScanQR}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-xs lg:text-sm font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200/80 rounded-xl transition min-h-[40px] cursor-pointer shadow-xs"
-              title={t('scan_qr_desc')}
-            >
-              <QrCode className="w-3.5 h-3.5 text-blue-600" />
-              <span>{t('scan_qr')}</span>
-            </button>
-          )}
-
           {(!user || user.role === 'CUSTOMER') && onOpenBusinessOnboarding && (
             <button
               id="nav-onboard-business-btn"
@@ -150,19 +149,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               <span>{t('connect_business')}</span>
             </button>
           )}
-
-          {/* Telegram Bot Button */}
-          <a
-            id="nav-telegram-bot-link"
-            href="https://t.me/Navbat1Uzb_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-xs lg:text-sm font-semibold text-[#0088cc] bg-[#2AABEE]/10 hover:bg-[#2AABEE]/20 rounded-xl transition min-h-[40px]"
-            title="NavbatBor Telegram Boti"
-          >
-            <Send className="w-3.5 h-3.5 fill-[#0088cc]" />
-            <span>{t('telegram_bot')}</span>
-          </a>
 
           {/* Active Queue pill if customer has active queue */}
           {activeQueueCount > 0 && (
@@ -274,7 +260,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         </div>
 
         {/* Mobile Action & Hamburger Button (md:hidden) */}
-        <div className="flex items-center gap-2 md:hidden">
+        <div className="flex items-center gap-2 xl:hidden">
           {/* Direct 1-tap language switch on mobile header */}
           <LanguageSwitcher idPrefix="nav-mobile-top" />
 
@@ -291,6 +277,8 @@ export const Navbar: React.FC<NavbarProps> = ({
             id="mobile-hamburger-btn"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Menyu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-header-menu"
             className="p-2.5 text-slate-700 hover:bg-slate-100 active:bg-slate-200 rounded-xl transition min-h-[44px] min-w-[44px] flex items-center justify-center border border-slate-200 cursor-pointer"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -300,7 +288,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       {/* MOBILE EXPANDED MENU DRAWER (md:hidden) */}
       {mobileMenuOpen && (
-        <div className="md:hidden bg-white border-b border-slate-200 shadow-xl px-4 py-4 space-y-4 animate-in slide-in-from-top-2 duration-150">
+        <div id="mobile-header-menu" className="xl:hidden bg-white border-b border-slate-200 shadow-xl px-4 py-4 space-y-4 max-h-[calc(100dvh-140px)] overflow-y-auto overscroll-contain">
           {/* Language selector segmented row in mobile menu */}
           <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200">
             <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
@@ -339,6 +327,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             ) : (
               <select
+                aria-label={t('select_city')}
                 value={selectedCity}
                 onChange={(e) => {
                   onSelectCity(e.target.value);
@@ -391,6 +380,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {(!user || user.role === 'CUSTOMER') && onOpenBusinessOnboarding && (
               <button
+                id="mobile-onboard-business-btn"
                 onClick={() => {
                   setMobileMenuOpen(false);
                   onOpenBusinessOnboarding();
@@ -469,10 +459,10 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             {/* Telegram Bot Link in mobile menu */}
             <a
-              href="https://t.me/Navbat1Uzb_bot"
+              href="https://t.me/navbatbor_biznes_bot"
               target="_blank"
               rel="noopener noreferrer"
-              className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-semibold transition flex items-center justify-between min-h-[44px] bg-[#2AABEE]/10 text-[#0088cc]"
+              className="w-full text-left px-3.5 py-3 rounded-xl text-sm font-semibold transition flex items-center justify-between min-h-[44px] bg-[#2AABEE]/10 text-blue-700"
             >
               <span className="flex items-center gap-2">
                 <Send className="w-4 h-4 fill-[#0088cc]" />

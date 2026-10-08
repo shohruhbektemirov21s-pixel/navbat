@@ -1,5 +1,9 @@
 import platform
-import resource
+try:
+    import resource
+except ImportError:  # Windows does not provide the Unix resource module.
+    resource = None
+    import psutil
 import shutil
 import time
 from datetime import timedelta
@@ -72,17 +76,21 @@ class SystemHealthView(views.APIView):
     permission_classes = [IsFounderOrAdmin]
 
     def get(self, request):
-        total, used, free = shutil.disk_usage('/')
+        total, used, free = shutil.disk_usage(settings.BASE_DIR)
         try:
             connection.ensure_connection()
             db_status = 'connected'
         except Exception:  # pragma: no cover
             db_status = 'error'
-        max_rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        if resource is None:
+            memory_mb = psutil.Process().memory_info().peak_wset / (1024 ** 2)
+        else:
+            max_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            memory_mb = max_rss / (1024 ** 2 if platform.system() == 'Darwin' else 1024)
         return Response({
             'status': 'HEALTHY' if db_status == 'connected' else 'DEGRADED',
             'uptimeSeconds': int(time.time() - PROCESS_STARTED),
-            'memoryUsageMB': round(max_rss_kb / 1024),
+            'memoryUsageMB': round(memory_mb),
             'pythonVersion': platform.python_version(),
             'databaseEngine': connection.vendor,
             'tableCounts': table_counts(),

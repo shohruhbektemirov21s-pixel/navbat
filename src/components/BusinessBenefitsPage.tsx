@@ -91,13 +91,13 @@ export const BusinessBenefitsPage: React.FC<BusinessBenefitsPageProps> = ({
               <ArrowRight className="w-4 h-4" />
             </button>
             <a
-              href="https://t.me/Navbat1Uzb_bot"
+              href="https://t.me/navbatbor_biznes_bot"
               target="_blank"
               rel="noopener noreferrer"
               className="px-5 py-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs sm:text-sm font-bold rounded-xl border border-slate-700 transition flex items-center gap-2 cursor-pointer"
             >
               <Send className="w-4 h-4 text-[#2AABEE]" />
-              <span>Operator Bot (@Navbat1Uzb_bot)</span>
+              <span>Operator Bot (@navbatbor_biznes_bot)</span>
             </a>
           </div>
         </div>

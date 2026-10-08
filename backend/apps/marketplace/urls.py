@@ -1,4 +1,5 @@
 from django.urls import path
+from .application_views import BusinessApplicationSubmitView
 
 from .views import (
     AdminBusinessApplicationApproveView, AdminBusinessApplicationRejectView, AdminBusinessApplicationsListView,
@@ -9,6 +10,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path('business-applications', BusinessApplicationSubmitView.as_view(), name='business-application-submit'),
     # Public
     path('categories', CategoryListView.as_view(), name='categories-list'),
     path('cities', CityListView.as_view(), name='cities-list'),

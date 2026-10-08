@@ -193,8 +193,10 @@ def approve_business_application(application, reviewed_by):
         send_telegram_message(application.telegram_chat_id, (
             '🎉 <b>Tabriklaymiz! Biznesingiz tasdiqlandi</b>\n━━━━━━━━━━━━━━━━\n'
             f'🏢 <b>{esc(business.name)}</b> endi NavbatBor katalogida ko‘rinadi.\n'
-            f'🔗 {settings.FRONTEND_URL}/business/{business.slug}'
+            f'🔗 {settings.FRONTEND_URL}/b/{business.slug}'
         ))
+    from apps.notifications.services import notify_user
+    notify_user(application.applicant, 'Biznesingiz tasdiqlandi', f'{business.name} katalogga qo‘shildi.', 'SUCCESS')
     return business
 
 
@@ -217,4 +219,6 @@ def reject_business_application(application, reviewed_by, reason):
             f'<b>Sabab:</b> {esc(application.reject_reason)}\n\n'
             'Qayta ariza topshirish uchun botga /start bizapp buyrug‘ini yuboring.'
         ))
+    from apps.notifications.services import notify_user
+    notify_user(application.applicant, 'Biznes arizasi rad etildi', application.reject_reason, 'WARNING')
     return application

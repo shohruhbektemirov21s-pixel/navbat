@@ -311,13 +311,13 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
               {/* Direct 1-Click Bot Access */}
               <a
-                href={bookingMeta?.telegramLink || `https://t.me/Navbat1Uzb_bot?start=bkg_${bookedResult.id}`}
+                href={bookingMeta?.telegramLink || `https://t.me/navbatbor_biznes_bot?start=bkg_${bookedResult.id}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-full py-2.5 px-3 bg-[#2AABEE] hover:bg-[#229ED9] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-xs transition cursor-pointer"
               >
                 <Send className="w-3.5 h-3.5 fill-white" />
-                <span>Telegram Botda Chekni Ko‘rish (@Navbat1Uzb_bot)</span>
+                <span>Telegram Botda Chekni Ko‘rish (@navbatbor_biznes_bot)</span>
               </a>
 
               {tgSentMessage && (

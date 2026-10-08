@@ -47,19 +47,19 @@ export const Footer: React.FC<FooterProps> = ({
               Bizneslar uchun
             </button>
             <a
-              href="https://t.me/Navbat1Uzb_bot"
+              href="https://t.me/navbatbor_biznes_bot"
               target="_blank"
               rel="noopener noreferrer"
               className="text-[#2AABEE] hover:text-[#52c1fa] flex items-center gap-1 font-semibold"
             >
               <Send className="w-3.5 h-3.5 fill-[#2AABEE]" />
-              <span>@Navbat1Uzb_bot</span>
+              <span>@navbatbor_biznes_bot</span>
             </a>
           </div>
         </div>
 
         {/* Bottom row: Legal & Copyright */}
-        <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-500">
+        <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-[11px] text-slate-400">
           <div>
             © {new Date().getFullYear()} NavbatBor. Barcha huquqlar himoyalangan.
           </div>

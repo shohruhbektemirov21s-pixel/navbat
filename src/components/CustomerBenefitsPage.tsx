@@ -47,7 +47,7 @@ export const CustomerBenefitsPage: React.FC<CustomerBenefitsPageProps> = ({
     {
       icon: Send,
       title: 'Telegram Bot orqali 1-bosishda xizmat',
-      desc: '@Navbat1Uzb_bot orqali ilovani yuklab olmasdan ham navbat olish, chekni saqlash va xabarlar olish mumkin.',
+      desc: '@navbatbor_biznes_bot orqali ilovani yuklab olmasdan ham navbat olish, chekni saqlash va xabarlar olish mumkin.',
       badge: 'Telegram 1-Click'
     }
   ];
@@ -89,7 +89,7 @@ export const CustomerBenefitsPage: React.FC<CustomerBenefitsPageProps> = ({
               Biznes va xizmatlarni topish
             </button>
             <a
-              href="https://t.me/Navbat1Uzb_bot"
+              href="https://t.me/navbatbor_biznes_bot"
               target="_blank"
               rel="noopener noreferrer"
               className="px-5 py-3 bg-[#2AABEE] hover:bg-[#229ED9] text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition flex items-center gap-2 cursor-pointer"

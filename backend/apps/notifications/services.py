@@ -30,9 +30,9 @@ def bot_configured():
     return bool(settings.TELEGRAM_BOT_TOKEN)
 
 
-def telegram_api(method, payload=None, timeout=REQUEST_TIMEOUT):
+def telegram_api(method, payload=None, timeout=REQUEST_TIMEOUT, *, token=None):
     """Call a Telegram Bot API method. Returns the decoded `result` or None on failure."""
-    token = settings.TELEGRAM_BOT_TOKEN
+    token = settings.TELEGRAM_BOT_TOKEN if token is None else token
     if not token:
         return None
     try:

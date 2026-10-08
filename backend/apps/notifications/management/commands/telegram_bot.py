@@ -28,20 +28,40 @@ class Command(BaseCommand):
     help = 'Telegram botini long polling rejimida ishga tushiradi.'
 
     def add_arguments(self, parser):
+        parser.add_argument('--admin', action='store_true', help='Faqat sayt egasi uchun yopiq admin bot.')
         parser.add_argument('--once', action='store_true', help='Bitta getUpdates partiyasini qayta ishlab chiqish.')
 
     def handle(self, *args, **options):
-        token = settings.TELEGRAM_BOT_TOKEN
+        is_admin = options['admin']
+        token = settings.TELEGRAM_ADMIN_BOT_TOKEN if is_admin else settings.TELEGRAM_BOT_TOKEN
+        if is_admin and not settings.TELEGRAM_ADMIN_USER_IDS:
+            raise CommandError('TELEGRAM_ADMIN_USER_IDS sozlanmagan. Admin bot yopiq qoladi.')
+        if is_admin and any(not user_id.isdecimal() or int(user_id) <= 0 for user_id in settings.TELEGRAM_ADMIN_USER_IDS):
+            raise CommandError('TELEGRAM_ADMIN_USER_IDS musbat raqamli Telegram user ID laridan iborat bo‘lishi kerak.')
+        if settings.TELEGRAM_ADMIN_BOT_TOKEN and settings.TELEGRAM_ADMIN_BOT_TOKEN == settings.TELEGRAM_BOT_TOKEN:
+            raise CommandError('Ochiq biznes bot va yopiq admin bot tokenlari alohida bo‘lishi kerak.')
+        if is_admin:
+            from apps.notifications.admin_bot import handle_update as process_update
+        else:
+            process_update = handle_update
         if not token:
             raise CommandError('TELEGRAM_BOT_TOKEN o‘rnatilmagan (.env).')
 
-        me = telegram_api('getMe')
+        me = telegram_api('getMe', token=token)
         if not me:
             raise CommandError('Bot tokeni yaroqsiz yoki Telegram API ga ulanib bo‘lmadi.')
-        telegram_api('deleteWebhook', {'drop_pending_updates': False})
+        telegram_api('deleteWebhook', {'drop_pending_updates': False}, token=token)
+        if is_admin:
+            telegram_api('setChatMenuButton', {'menu_button': {'type': 'commands'}}, token=token)
+            telegram_api('deleteMyCommands', token=token)
+            for user_id in settings.TELEGRAM_ADMIN_USER_IDS:
+                telegram_api('setMyCommands', {'scope': {'type': 'chat', 'chat_id': int(user_id)},
+                            'commands': [{'command': 'arizalar', 'description': 'Biznes arizalarini ko‘rish'},
+                                         {'command': 'bekor', 'description': 'Rad etishni bekor qilish'}]}, token=token)
         self.stdout.write(self.style.SUCCESS(f"@{me.get('username')} ishga tushdi (long polling). To‘xtatish: Ctrl+C"))
 
-        offset = int(AppSetting.objects.filter(key=OFFSET_KEY).values_list('value', flat=True).first() or 0)
+        offset_key = 'telegram_admin_update_offset' if is_admin else OFFSET_KEY
+        offset = int(AppSetting.objects.filter(key=offset_key).values_list('value', flat=True).first() or 0)
         session = requests.Session()
         url = TELEGRAM_API.format(token=token, method='getUpdates')
         backoff = 1
@@ -64,9 +84,13 @@ class Command(BaseCommand):
                     time.sleep(5)
                     continue
                 for update in data.get('result', []):
-                    handle_update(update)
+                    try:
+                        process_update(update)
+                    except Exception:
+                        logger.exception('update_failed update_id=%s', update.get('update_id'))
+                        break  # Retry failed update instead of acknowledging it.
                     offset = update['update_id'] + 1
-                    AppSetting.objects.update_or_create(key=OFFSET_KEY, defaults={'value': str(offset)})
+                    AppSetting.objects.update_or_create(key=offset_key, defaults={'value': str(offset)})
                 if options['once']:
                     break
         except KeyboardInterrupt:

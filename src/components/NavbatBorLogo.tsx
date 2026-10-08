@@ -149,7 +149,7 @@ export const NavbatBorLogo: React.FC<NavbatBorLogoProps> = ({
       {/* Brand Text & Tagline */}
       <div className="text-left">
         <div className={`font-black tracking-tight text-lg sm:text-xl leading-tight ${lightText ? 'text-white' : 'text-slate-900'}`}>
-          Navbat<span className="text-[#0066FF]">Bor</span>
+          Navbat<span className={lightText ? 'text-blue-300' : 'text-[#0066FF]'}>Bor</span>
         </div>
         {showTagline && (
           <p className={`text-[10px] font-medium leading-none mt-0.5 ${lightText ? 'text-white/80' : 'text-slate-500'}`}>

@@ -300,6 +300,9 @@ LOGGING = {
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '').strip()
 TELEGRAM_BOT_USERNAME = os.getenv('TELEGRAM_BOT_USERNAME', 'NavbatBor_bot').strip() or 'NavbatBor_bot'
 TELEGRAM_ADMIN_CHAT_ID = os.getenv('TELEGRAM_ADMIN_CHAT_ID', '').strip()
+TELEGRAM_ADMIN_BOT_TOKEN = os.getenv('TELEGRAM_ADMIN_BOT_TOKEN', '').strip()
+TELEGRAM_ADMIN_USER_IDS = env_list('TELEGRAM_ADMIN_USER_IDS')
+TELEGRAM_ADMIN_REVIEWER_EMAIL = os.getenv('TELEGRAM_ADMIN_REVIEWER_EMAIL', 'rasulovjahongir074@gmail.com').strip()
 TELEGRAM_WEBHOOK_SECRET = os.getenv('TELEGRAM_WEBHOOK_SECRET', '').strip()
 TELEGRAM_PAYMENT_CONTACT_URL = os.getenv('TELEGRAM_PAYMENT_CONTACT_URL', 'https://t.me/mansur_0511').strip()
 # Max age of Telegram WebApp initData (seconds).

@@ -39,7 +39,7 @@ export const QueueModal: React.FC<QueueModalProps> = ({
   const [customTgInput, setCustomTgInput] = useState<string>(initialTg);
   const [showTgInput, setShowTgInput] = useState<boolean>(false);
 
-  const botUsername = 'Navbat1Uzb_bot';
+  const botUsername = 'navbatbor_biznes_bot';
 
   const handleSendTicketToTelegram = async () => {
     if (!joinedTicket) return;
